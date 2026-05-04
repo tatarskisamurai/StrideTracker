@@ -146,7 +146,7 @@ public sealed class MainForm : Form
         }
 
         _tracker.AddSample(sample);
-        EnsureAppIcon(sample.ProcessName, sample.ProcessId);
+        EnsureAppIcon(sample.ProcessName, sample.ProcessId, sample.ExecutablePath);
         _ticksSinceLastAutosave++;
         if (_ticksSinceLastAutosave >= 10)
         {
@@ -231,6 +231,7 @@ public sealed class MainForm : Form
             }
 
             item.Text = appName;
+            EnsureAppIcon(appName, processId: null, executablePath: _tracker.GetKnownExecutablePath(appName));
             item.ImageKey = GetIconKeyForApp(appName);
             item.SubItems[1].Text = duration.ToString(@"hh\:mm\:ss");
             item.SubItems[2].Text = $"{percent:0.0}%";
@@ -289,27 +290,29 @@ public sealed class MainForm : Form
         return _defaultIconKey;
     }
 
-    private void EnsureAppIcon(string appName, int processId)
+    private void EnsureAppIcon(string appName, int? processId, string? executablePath)
     {
         if (_iconKeyByApp.TryGetValue(appName, out var iconKey) && iconKey != _defaultIconKey)
         {
             return;
         }
 
-        _iconKeyByApp[appName] = TryLoadProcessIcon(appName, processId) ?? _defaultIconKey;
+        _iconKeyByApp[appName] = TryLoadProcessIcon(appName, processId, executablePath) ?? _defaultIconKey;
     }
 
-    private string? TryLoadProcessIcon(string appName, int processId)
+    private string? TryLoadProcessIcon(string appName, int? processId, string? executablePath)
     {
-        string? executablePath;
-        try
+        if (string.IsNullOrWhiteSpace(executablePath) && processId is int actualProcessId)
         {
-            using var process = Process.GetProcessById(processId);
-            executablePath = process.MainModule?.FileName;
-        }
-        catch
-        {
-            return null;
+            try
+            {
+                using var process = Process.GetProcessById(actualProcessId);
+                executablePath = process.MainModule?.FileName;
+            }
+            catch
+            {
+                executablePath = null;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))

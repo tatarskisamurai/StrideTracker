@@ -8,6 +8,7 @@ namespace StrideTracker.Tracking;
 public sealed class AppUsageTracker
 {
     private readonly Dictionary<string, TimeSpan> _durationsByApp = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _executablePathByApp = new(StringComparer.OrdinalIgnoreCase);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -19,6 +20,8 @@ public sealed class AppUsageTracker
 
     public void AddSample(ActiveWindowInfo sample)
     {
+        RememberExecutablePath(sample.ProcessName, sample.ExecutablePath);
+
         if (_lastSample is not null)
         {
             var elapsed = sample.CapturedAtUtc - _lastSample.CapturedAtUtc;
@@ -49,7 +52,10 @@ public sealed class AppUsageTracker
 
     public async Task SaveJsonAsync(string outputPath, CancellationToken cancellationToken = default)
     {
-        var data = GetOrderedEntries();
+        var data = _durationsByApp
+            .OrderByDescending(x => x.Value)
+            .Select(x => new AppUsageReportEntry(x.Key, x.Value.TotalSeconds))
+            .ToArray();
         await using var stream = File.Create(outputPath);
         await JsonSerializer.SerializeAsync(stream, data, JsonOptions, cancellationToken);
     }
@@ -85,6 +91,7 @@ public sealed class AppUsageTracker
         }
 
         _durationsByApp.Clear();
+        _executablePathByApp.Clear();
         _lastSample = null;
 
         foreach (var entry in state.Entries)
@@ -95,7 +102,18 @@ public sealed class AppUsageTracker
             }
 
             _durationsByApp[entry.AppName] = TimeSpan.FromSeconds(entry.Seconds);
+            RememberExecutablePath(entry.AppName, entry.ExecutablePath);
         }
+    }
+
+    public string? GetKnownExecutablePath(string appName)
+    {
+        if (_executablePathByApp.TryGetValue(appName, out var path))
+        {
+            return path;
+        }
+
+        return null;
     }
 
     public static ActiveWindowInfo? TryGetActiveWindowInfo()
@@ -112,9 +130,20 @@ public sealed class AppUsageTracker
         }
 
         string processName;
+        string? executablePath = null;
         try
         {
-            processName = Process.GetProcessById((int)processId).ProcessName;
+            using var process = Process.GetProcessById((int)processId);
+            processName = process.ProcessName;
+
+            try
+            {
+                executablePath = process.MainModule?.FileName;
+            }
+            catch
+            {
+                executablePath = null;
+            }
         }
         catch
         {
@@ -129,7 +158,8 @@ public sealed class AppUsageTracker
             ProcessId: (int)processId,
             ProcessName: processName,
             WindowTitle: windowTitle,
-            CapturedAtUtc: DateTimeOffset.UtcNow);
+            CapturedAtUtc: DateTimeOffset.UtcNow,
+            ExecutablePath: executablePath);
     }
 
     private void AddDuration(string appName, TimeSpan elapsed)
@@ -143,15 +173,29 @@ public sealed class AppUsageTracker
         _durationsByApp[appName] = elapsed;
     }
 
-    private sealed record AppUsageEntry(string AppName, double Seconds);
+    private sealed record AppUsageReportEntry(string AppName, double Seconds);
+    private sealed record AppUsageEntry(string AppName, double Seconds, string? ExecutablePath);
     private sealed record TrackerState(DateTimeOffset SavedAtUtc, AppUsageEntry[] Entries);
 
     private AppUsageEntry[] GetOrderedEntries()
     {
         return _durationsByApp
             .OrderByDescending(x => x.Value)
-            .Select(x => new AppUsageEntry(x.Key, x.Value.TotalSeconds))
+            .Select(x => new AppUsageEntry(
+                AppName: x.Key,
+                Seconds: x.Value.TotalSeconds,
+                ExecutablePath: GetKnownExecutablePath(x.Key)))
             .ToArray();
+    }
+
+    private void RememberExecutablePath(string appName, string? executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(appName) || string.IsNullOrWhiteSpace(executablePath))
+        {
+            return;
+        }
+
+        _executablePathByApp[appName] = executablePath;
     }
 
     [DllImport("user32.dll")]
