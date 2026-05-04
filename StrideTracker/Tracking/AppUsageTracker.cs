@@ -8,6 +8,10 @@ namespace StrideTracker.Tracking;
 public sealed class AppUsageTracker
 {
     private readonly Dictionary<string, TimeSpan> _durationsByApp = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true
+    };
 
     private ActiveWindowInfo? _lastSample;
 
@@ -45,16 +49,53 @@ public sealed class AppUsageTracker
 
     public async Task SaveJsonAsync(string outputPath, CancellationToken cancellationToken = default)
     {
-        var data = _durationsByApp
-            .OrderByDescending(x => x.Value)
-            .Select(x => new AppUsageEntry(x.Key, x.Value.TotalSeconds))
-            .ToArray();
-
+        var data = GetOrderedEntries();
         await using var stream = File.Create(outputPath);
-        await JsonSerializer.SerializeAsync(stream, data, new JsonSerializerOptions
+        await JsonSerializer.SerializeAsync(stream, data, JsonOptions, cancellationToken);
+    }
+
+    public void SaveState(string outputPath)
+    {
+        var directoryPath = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrWhiteSpace(directoryPath))
         {
-            WriteIndented = true
-        }, cancellationToken);
+            Directory.CreateDirectory(directoryPath);
+        }
+
+        var state = new TrackerState(
+            SavedAtUtc: DateTimeOffset.UtcNow,
+            Entries: GetOrderedEntries());
+
+        var json = JsonSerializer.Serialize(state, JsonOptions);
+        File.WriteAllText(outputPath, json);
+    }
+
+    public void LoadState(string inputPath)
+    {
+        if (!File.Exists(inputPath))
+        {
+            return;
+        }
+
+        var json = File.ReadAllText(inputPath);
+        var state = JsonSerializer.Deserialize<TrackerState>(json);
+        if (state?.Entries is null)
+        {
+            return;
+        }
+
+        _durationsByApp.Clear();
+        _lastSample = null;
+
+        foreach (var entry in state.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.AppName) || entry.Seconds <= 0)
+            {
+                continue;
+            }
+
+            _durationsByApp[entry.AppName] = TimeSpan.FromSeconds(entry.Seconds);
+        }
     }
 
     public static ActiveWindowInfo? TryGetActiveWindowInfo()
@@ -103,6 +144,15 @@ public sealed class AppUsageTracker
     }
 
     private sealed record AppUsageEntry(string AppName, double Seconds);
+    private sealed record TrackerState(DateTimeOffset SavedAtUtc, AppUsageEntry[] Entries);
+
+    private AppUsageEntry[] GetOrderedEntries()
+    {
+        return _durationsByApp
+            .OrderByDescending(x => x.Value)
+            .Select(x => new AppUsageEntry(x.Key, x.Value.TotalSeconds))
+            .ToArray();
+    }
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();

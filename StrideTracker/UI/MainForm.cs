@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Drawing;
 using StrideTracker.Tracking;
 
 namespace StrideTracker.UI;
@@ -7,16 +9,21 @@ public sealed class MainForm : Form
     private readonly AppUsageTracker _tracker = new();
     private readonly System.Windows.Forms.Timer _samplingTimer = new() { Interval = 1000 };
     private readonly int _selfProcessId = Environment.ProcessId;
+    private readonly string _sessionStatePath = BuildSessionStatePath();
 
     private readonly Label _statusLabel = new();
     private readonly Label _currentAppLabel = new();
-    private readonly ListView _usageListView = new();
+    private readonly UsageListView _usageListView = new();
+    private readonly ImageList _appIcons = new();
+    private readonly Dictionary<string, string> _iconKeyByApp = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string _defaultIconKey = "default";
     private readonly Button _startButton = new();
     private readonly Button _stopButton = new();
     private readonly Button _saveButton = new();
 
     private bool _isTracking;
     private DateTimeOffset? _startedAt;
+    private int _ticksSinceLastAutosave;
 
     public MainForm()
     {
@@ -28,11 +35,17 @@ public sealed class MainForm : Form
 
         InitializeLayout();
         BindEvents();
+        RestorePreviousState();
+        RefreshUsageList();
         UpdateUiState();
     }
 
     private void InitializeLayout()
     {
+        _appIcons.ColorDepth = ColorDepth.Depth32Bit;
+        _appIcons.ImageSize = new Size(16, 16);
+        _appIcons.Images.Add(_defaultIconKey, SystemIcons.Application.ToBitmap());
+
         _statusLabel.Dock = DockStyle.Top;
         _statusLabel.Padding = new Padding(12, 12, 12, 6);
         _statusLabel.Font = new Font(_statusLabel.Font, FontStyle.Bold);
@@ -46,6 +59,7 @@ public sealed class MainForm : Form
         _usageListView.View = View.Details;
         _usageListView.FullRowSelect = true;
         _usageListView.GridLines = true;
+        _usageListView.SmallImageList = _appIcons;
         _usageListView.Columns.Add("Application", 420);
         _usageListView.Columns.Add("Time", 160);
         _usageListView.Columns.Add("Percent", 120);
@@ -93,6 +107,7 @@ public sealed class MainForm : Form
 
         _isTracking = true;
         _startedAt = DateTimeOffset.Now;
+        _ticksSinceLastAutosave = 0;
         _samplingTimer.Start();
         UpdateUiState();
     }
@@ -106,6 +121,7 @@ public sealed class MainForm : Form
 
         _samplingTimer.Stop();
         _tracker.Flush(DateTimeOffset.UtcNow);
+        PersistState();
         _isTracking = false;
         _currentAppLabel.Text = "Current app: -";
         UpdateUiState();
@@ -130,6 +146,14 @@ public sealed class MainForm : Form
         }
 
         _tracker.AddSample(sample);
+        EnsureAppIcon(sample.ProcessName, sample.ProcessId);
+        _ticksSinceLastAutosave++;
+        if (_ticksSinceLastAutosave >= 10)
+        {
+            PersistState();
+            _ticksSinceLastAutosave = 0;
+        }
+
         var title = string.IsNullOrWhiteSpace(sample.WindowTitle) ? "(no title)" : sample.WindowTitle;
         _currentAppLabel.Text = $"Current app: {sample.ProcessName} | {title}";
         RefreshUsageList();
@@ -178,21 +202,56 @@ public sealed class MainForm : Form
     private void RefreshUsageList()
     {
         _usageListView.BeginUpdate();
-        _usageListView.Items.Clear();
 
         var snapshot = _tracker.DurationsByApp
             .OrderByDescending(x => x.Value)
             .ToArray();
 
         var total = snapshot.Sum(x => x.Value.TotalSeconds);
+        var existingByApp = _usageListView.Items
+            .Cast<ListViewItem>()
+            .Where(item => item.Tag is string)
+            .ToDictionary(item => (string)item.Tag!, item => item, StringComparer.OrdinalIgnoreCase);
+        var seenApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var targetIndex = 0;
 
         foreach (var (appName, duration) in snapshot)
         {
+            seenApps.Add(appName);
             var percent = total > 0 ? duration.TotalSeconds / total * 100d : 0d;
-            var item = new ListViewItem(appName);
-            item.SubItems.Add(duration.ToString(@"hh\:mm\:ss"));
-            item.SubItems.Add($"{percent:0.0}%");
-            _usageListView.Items.Add(item);
+            if (!existingByApp.TryGetValue(appName, out var item))
+            {
+                item = new ListViewItem(appName)
+                {
+                    Tag = appName
+                };
+                item.SubItems.Add(string.Empty);
+                item.SubItems.Add(string.Empty);
+                _usageListView.Items.Add(item);
+            }
+
+            item.Text = appName;
+            item.ImageKey = GetIconKeyForApp(appName);
+            item.SubItems[1].Text = duration.ToString(@"hh\:mm\:ss");
+            item.SubItems[2].Text = $"{percent:0.0}%";
+
+            if (item.Index != targetIndex)
+            {
+                _usageListView.Items.RemoveAt(item.Index);
+                _usageListView.Items.Insert(targetIndex, item);
+            }
+
+            targetIndex++;
+        }
+
+        for (var index = _usageListView.Items.Count - 1; index >= 0; index--)
+        {
+            if (_usageListView.Items[index].Tag is not string appName || seenApps.Contains(appName))
+            {
+                continue;
+            }
+
+            _usageListView.Items.RemoveAt(index);
         }
 
         _usageListView.EndUpdate();
@@ -216,5 +275,102 @@ public sealed class MainForm : Form
         {
             StopTracking();
         }
+
+        PersistState();
+    }
+
+    private string GetIconKeyForApp(string appName)
+    {
+        if (_iconKeyByApp.TryGetValue(appName, out var iconKey))
+        {
+            return iconKey;
+        }
+
+        return _defaultIconKey;
+    }
+
+    private void EnsureAppIcon(string appName, int processId)
+    {
+        if (_iconKeyByApp.TryGetValue(appName, out var iconKey) && iconKey != _defaultIconKey)
+        {
+            return;
+        }
+
+        _iconKeyByApp[appName] = TryLoadProcessIcon(appName, processId) ?? _defaultIconKey;
+    }
+
+    private string? TryLoadProcessIcon(string appName, int processId)
+    {
+        string? executablePath;
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            executablePath = process.MainModule?.FileName;
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+        {
+            return null;
+        }
+
+        Icon? icon;
+        try
+        {
+            icon = Icon.ExtractAssociatedIcon(executablePath);
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (icon is null)
+        {
+            return null;
+        }
+
+        using (icon)
+        {
+            var iconKey = $"app:{appName}";
+            if (!_appIcons.Images.ContainsKey(iconKey))
+            {
+                _appIcons.Images.Add(iconKey, icon.ToBitmap());
+            }
+
+            return iconKey;
+        }
+    }
+
+    private void RestorePreviousState()
+    {
+        try
+        {
+            _tracker.LoadState(_sessionStatePath);
+        }
+        catch
+        {
+            // Ignore corrupted cache and continue with empty state.
+        }
+    }
+
+    private void PersistState()
+    {
+        try
+        {
+            _tracker.SaveState(_sessionStatePath);
+        }
+        catch
+        {
+            // Ignore save errors to avoid blocking app close.
+        }
+    }
+
+    private static string BuildSessionStatePath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(appData, "StrideTracker", "tracker-state.json");
     }
 }
