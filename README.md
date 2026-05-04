@@ -7,7 +7,6 @@ MVP Windows time tracker that records how long each foreground app stays active.
 - WinForms GUI with live table of app usage.
 - Polls active window every second.
 - Aggregates time by process name.
-- Saves report to JSON from GUI button.
 - Automatically saves tracker state on close and restores it on next launch.
 
 ## Run
@@ -24,7 +23,6 @@ Use buttons:
 
 - `Start` to begin tracking.
 - `Stop` to pause tracking.
-- `Save report` to export `usage-YYYYMMDD-HHMMSS.json`.
 
 ## Next steps
 

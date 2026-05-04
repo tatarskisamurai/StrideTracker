@@ -11,15 +11,12 @@ public sealed class MainForm : Form
     private readonly int _selfProcessId = Environment.ProcessId;
     private readonly string _sessionStatePath = BuildSessionStatePath();
 
-    private readonly Label _statusLabel = new();
-    private readonly Label _currentAppLabel = new();
     private readonly UsageListView _usageListView = new();
     private readonly ImageList _appIcons = new();
     private readonly Dictionary<string, string> _iconKeyByApp = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _defaultIconKey = "default";
     private readonly Button _startButton = new();
     private readonly Button _stopButton = new();
-    private readonly Button _saveButton = new();
 
     private bool _isTracking;
     private DateTimeOffset? _startedAt;
@@ -46,15 +43,6 @@ public sealed class MainForm : Form
         _appIcons.ImageSize = new Size(16, 16);
         _appIcons.Images.Add(_defaultIconKey, SystemIcons.Application.ToBitmap());
 
-        _statusLabel.Dock = DockStyle.Top;
-        _statusLabel.Padding = new Padding(12, 12, 12, 6);
-        _statusLabel.Font = new Font(_statusLabel.Font, FontStyle.Bold);
-        _statusLabel.Text = "Status: Stopped";
-
-        _currentAppLabel.Dock = DockStyle.Top;
-        _currentAppLabel.Padding = new Padding(12, 0, 12, 10);
-        _currentAppLabel.Text = "Current app: -";
-
         _usageListView.Dock = DockStyle.Fill;
         _usageListView.View = View.Details;
         _usageListView.FullRowSelect = true;
@@ -79,14 +67,9 @@ public sealed class MainForm : Form
         _stopButton.Text = "Stop";
         _stopButton.Width = 100;
 
-        _saveButton.Text = "Save report";
-        _saveButton.Width = 120;
-
-        controlsPanel.Controls.AddRange([_startButton, _stopButton, _saveButton]);
+        controlsPanel.Controls.AddRange([_startButton, _stopButton]);
         Controls.Add(_usageListView);
         Controls.Add(controlsPanel);
-        Controls.Add(_currentAppLabel);
-        Controls.Add(_statusLabel);
     }
 
     private void BindEvents()
@@ -94,7 +77,6 @@ public sealed class MainForm : Form
         _samplingTimer.Tick += OnSamplingTick;
         _startButton.Click += (_, _) => StartTracking();
         _stopButton.Click += (_, _) => StopTracking();
-        _saveButton.Click += async (_, _) => await SaveReportWithDialogAsync();
         FormClosing += OnFormClosing;
     }
 
@@ -123,7 +105,6 @@ public sealed class MainForm : Form
         _tracker.Flush(DateTimeOffset.UtcNow);
         PersistState();
         _isTracking = false;
-        _currentAppLabel.Text = "Current app: -";
         UpdateUiState();
         RefreshUsageList();
     }
@@ -140,7 +121,6 @@ public sealed class MainForm : Form
         {
             // Stop attribution when our own UI is focused.
             _tracker.Flush(sample.CapturedAtUtc);
-            _currentAppLabel.Text = "Current app: (Stride Tracker UI is focused)";
             RefreshUsageList();
             return;
         }
@@ -154,49 +134,7 @@ public sealed class MainForm : Form
             _ticksSinceLastAutosave = 0;
         }
 
-        var title = string.IsNullOrWhiteSpace(sample.WindowTitle) ? "(no title)" : sample.WindowTitle;
-        _currentAppLabel.Text = $"Current app: {sample.ProcessName} | {title}";
         RefreshUsageList();
-    }
-
-    private async Task SaveReportWithDialogAsync()
-    {
-        using var saveDialog = new SaveFileDialog
-        {
-            Title = "Save usage report",
-            Filter = "JSON files (*.json)|*.json",
-            FileName = $"usage-{DateTime.Now:yyyyMMdd-HHmmss}.json",
-            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
-        };
-
-        if (saveDialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        if (_isTracking)
-        {
-            var sample = AppUsageTracker.TryGetActiveWindowInfo();
-            if (sample is not null && sample.ProcessId != _selfProcessId)
-            {
-                _tracker.AddSample(sample);
-            }
-            else if (sample is not null)
-            {
-                _tracker.Flush(sample.CapturedAtUtc);
-            }
-        }
-
-        try
-        {
-            await _tracker.SaveJsonAsync(saveDialog.FileName);
-            MessageBox.Show(this, $"Report saved to:\n{saveDialog.FileName}", "Stride Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            UpdateUiState();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, $"Cannot save report:\n{ex.Message}", "Stride Tracker", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
     }
 
     private void RefreshUsageList()
@@ -261,13 +199,8 @@ public sealed class MainForm : Form
 
     private void UpdateUiState()
     {
-        _statusLabel.Text = _isTracking
-            ? $"Status: Tracking (started {_startedAt:HH:mm:ss})"
-            : "Status: Stopped";
-
         _startButton.Enabled = !_isTracking;
         _stopButton.Enabled = _isTracking;
-        _saveButton.Enabled = _tracker.DurationsByApp.Count > 0 || _isTracking;
     }
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
