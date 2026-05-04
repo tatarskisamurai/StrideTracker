@@ -4,10 +4,10 @@ MVP Windows time tracker that records how long each foreground app stays active.
 
 ## Current stage
 
+- WinForms GUI with live table of app usage.
 - Polls active window every second.
 - Aggregates time by process name.
-- Prints live samples to console.
-- Saves report to JSON on stop (`Ctrl+C`).
+- Saves report to JSON from GUI button.
 
 ## Run
 
@@ -19,11 +19,15 @@ MVP Windows time tracker that records how long each foreground app stays active.
 dotnet run
 ```
 
-Stop with `Ctrl+C` and get a `usage-YYYYMMDD-HHMMSS.json` report in the build output folder.
+Use buttons:
+
+- `Start` to begin tracking.
+- `Stop` to pause tracking.
+- `Save report` to export `usage-YYYYMMDD-HHMMSS.json`.
 
 ## Next steps
 
 - Add SQLite storage and session history.
-- Build tray app (WinUI/WPF) instead of console.
+- Add system tray mode and autostart with Windows.
 - Add category mapping (work/study/entertainment).
 - Track idle time and exclude AFK periods.
