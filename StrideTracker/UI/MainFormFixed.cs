@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Reflection;
 using StrideTracker.Configuration;
 using StrideTracker.Tracking;
 
@@ -54,6 +55,7 @@ public sealed class MainForm : Form
         }
 
         BuildLayout();
+        EnableAntiFlicker();
         BindEvents();
         ApplySettings(_appSettings);
         RestoreState();
@@ -282,8 +284,10 @@ public sealed class MainForm : Form
             _today.Text = "Today: 0m";
             _week.Text = "This week: 0m";
             _total.Text = "Total: 0m";
+            _sessions.SuspendLayout();
             _sessions.Controls.Clear();
             _sessions.Controls.Add(new Label { Text = "No sessions yet", AutoSize = true, ForeColor = Color.FromArgb(85, 113, 136) });
+            _sessions.ResumeLayout();
             return;
         }
 
@@ -294,6 +298,7 @@ public sealed class MainForm : Form
         _week.Text = $"This week: {FormatDuration(TimeSpan.FromSeconds(d.Duration.TotalSeconds * 2.6))}";
         _total.Text = $"Total: {FormatDuration(d.Duration)}";
 
+        _sessions.SuspendLayout();
         _sessions.Controls.Clear();
         foreach (var entry in BuildSessionRows(d.Duration))
         {
@@ -305,6 +310,7 @@ public sealed class MainForm : Form
                 Margin = new Padding(3, 4, 3, 4)
             });
         }
+        _sessions.ResumeLayout();
     }
 
     private void LaunchCurrentOrPick()
@@ -459,5 +465,24 @@ public sealed class MainForm : Form
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(appData, "StrideTracker", "settings.json");
+    }
+
+    private void EnableAntiFlicker()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        UpdateStyles();
+        EnableDoubleBufferRecursive(this);
+    }
+
+    private static void EnableDoubleBufferRecursive(Control control)
+    {
+        typeof(Control)
+            .GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.SetValue(control, true, null);
+
+        foreach (Control child in control.Controls)
+        {
+            EnableDoubleBufferRecursive(child);
+        }
     }
 }
