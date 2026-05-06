@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Reflection;
 using StrideTracker.Configuration;
 using StrideTracker.Tracking;
@@ -13,6 +14,7 @@ public sealed class MainForm : Form
     private readonly System.Windows.Forms.Timer _samplingTimer = new();
     private readonly ImageList _icons = new();
     private readonly Dictionary<string, string> _iconKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Image> _heroIconCache = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly int _selfProcessId = Environment.ProcessId;
     private readonly string _sessionPath = BuildSessionPath();
@@ -23,9 +25,15 @@ public sealed class MainForm : Form
     private readonly Label _title = new();
     private readonly Label _appName = new();
     private readonly Label _appPath = new();
+    private readonly Label _lastLaunch = new();
     private readonly Label _today = new();
     private readonly Label _week = new();
     private readonly Label _total = new();
+    private readonly PictureBox _heroIcon = new();
+    private readonly Panel _heroDivider = new();
+    private readonly Label _todayLabel = new();
+    private readonly Label _weekLabel = new();
+    private readonly Label _totalLabel = new();
     private readonly FlowLayoutPanel _sessions = new();
     private readonly Button _start = new();
     private readonly Button _stop = new();
@@ -108,7 +116,13 @@ public sealed class MainForm : Form
 
         _settings.Text = "Settings";
         _settings.Dock = DockStyle.Bottom;
-        _settings.Height = 32;
+        _settings.Height = 36;
+        _settings.FlatStyle = FlatStyle.Flat;
+        _settings.FlatAppearance.BorderSize = 0;
+        _settings.BackColor = Color.FromArgb(12, 24, 36);
+        _settings.ForeColor = Color.FromArgb(230, 237, 243);
+        _settings.TextAlign = ContentAlignment.MiddleLeft;
+        _settings.Padding = new Padding(16, 0, 0, 0);
 
         sidebar.Controls.Add(_appsList);
         sidebar.Controls.Add(_search);
@@ -129,42 +143,110 @@ public sealed class MainForm : Form
 
         _start.Text = "Start";
         _start.Width = 88;
-        _start.Left = 640;
-        _start.Top = 14;
         _stop.Text = "Stop";
         _stop.Width = 88;
-        _stop.Left = 735;
-        _stop.Top = 14;
+        ApplyHeaderButtonStyle(_start);
+        ApplyHeaderButtonStyle(_stop);
+        var actions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            Width = 210,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Padding = new Padding(0, 6, 0, 0)
+        };
+        actions.Controls.Add(_start);
+        actions.Controls.Add(_stop);
         header.Controls.Add(_title);
-        header.Controls.Add(_start);
-        header.Controls.Add(_stop);
+        header.Controls.Add(actions);
 
         var content = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(20) };
-        var hero = new Panel { Width = 780, Height = 170, BackColor = Color.FromArgb(24, 40, 54), Padding = new Padding(16) };
+        var hero = new Panel { Width = 780, Height = 210, BackColor = Color.FromArgb(24, 40, 54), Padding = new Padding(16) };
+        _heroIcon.Left = 20;
+        _heroIcon.Top = 20;
+        _heroIcon.Width = 56;
+        _heroIcon.Height = 56;
+        _heroIcon.SizeMode = PictureBoxSizeMode.Zoom;
+        _heroIcon.BackColor = Color.FromArgb(32, 52, 70);
+
         _appName.Text = "No app selected";
         _appName.ForeColor = Color.FromArgb(230, 237, 243);
         _appName.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
         _appName.AutoSize = true;
-        _appPath.Top = 34;
+        _appName.Left = 92;
+        _appName.Top = 22;
+        _appPath.Left = 92;
+        _appPath.Top = 48;
         _appPath.Width = 540;
         _appPath.ForeColor = Color.FromArgb(155, 178, 199);
-        _today.Top = 70;
-        _week.Top = 96;
-        _total.Top = 122;
-        _today.ForeColor = _week.ForeColor = _total.ForeColor = Color.FromArgb(125, 212, 255);
-        _today.AutoSize = _week.AutoSize = _total.AutoSize = true;
+        _lastLaunch.Left = 92;
+        _lastLaunch.Top = 68;
+        _lastLaunch.Width = 540;
+        _lastLaunch.ForeColor = Color.FromArgb(155, 178, 199);
+        _lastLaunch.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        _lastLaunch.Text = "Last launch: Never";
+
+        _heroDivider.Left = 20;
+        _heroDivider.Top = 98;
+        _heroDivider.Width = 620;
+        _heroDivider.Height = 1;
+        _heroDivider.BackColor = Color.White;
+
+        var statsGrid = new TableLayoutPanel
+        {
+            Left = 20,
+            Top = 110,
+            Width = 560,
+            Height = 62,
+            ColumnCount = 3,
+            RowCount = 2
+        };
+        statsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+        statsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+        statsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34F));
+        statsGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 40F));
+        statsGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 60F));
+
+        _todayLabel.Text = "Today";
+        _weekLabel.Text = "This Week";
+        _totalLabel.Text = "Total";
+        _todayLabel.ForeColor = _weekLabel.ForeColor = _totalLabel.ForeColor = Color.White;
+        _todayLabel.Font = _weekLabel.Font = _totalLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+        _todayLabel.Dock = _weekLabel.Dock = _totalLabel.Dock = DockStyle.Fill;
+        _todayLabel.TextAlign = _weekLabel.TextAlign = _totalLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+        _today.Text = "0h 00m";
+        _week.Text = "0h 00m";
+        _total.Text = "0h 00m";
+        _today.ForeColor = _week.ForeColor = _total.ForeColor = Color.White;
+        _today.Font = _week.Font = _total.Font = new Font("Consolas", 14F, FontStyle.Bold);
+        _today.Dock = _week.Dock = _total.Dock = DockStyle.Fill;
+        _today.TextAlign = _week.TextAlign = _total.TextAlign = ContentAlignment.MiddleLeft;
+
+        statsGrid.Controls.Add(_todayLabel, 0, 0);
+        statsGrid.Controls.Add(_weekLabel, 1, 0);
+        statsGrid.Controls.Add(_totalLabel, 2, 0);
+        statsGrid.Controls.Add(_today, 0, 1);
+        statsGrid.Controls.Add(_week, 1, 1);
+        statsGrid.Controls.Add(_total, 2, 1);
+
         _launch.Text = "Launch";
         _launch.Width = 100;
         _launch.Left = 660;
-        _launch.Top = 64;
+        _launch.Top = 86;
+        _launch.BackColor = Color.FromArgb(46, 125, 50);
+        _launch.ForeColor = Color.White;
+        _launch.FlatStyle = FlatStyle.Flat;
+        _launch.FlatAppearance.BorderSize = 0;
+        hero.Controls.Add(_heroIcon);
         hero.Controls.Add(_appName);
         hero.Controls.Add(_appPath);
-        hero.Controls.Add(_today);
-        hero.Controls.Add(_week);
-        hero.Controls.Add(_total);
+        hero.Controls.Add(_lastLaunch);
+        hero.Controls.Add(_heroDivider);
+        hero.Controls.Add(statsGrid);
         hero.Controls.Add(_launch);
 
-        _sessions.Top = 190;
+        _sessions.Top = 230;
         _sessions.Width = 780;
         _sessions.Height = 260;
         _sessions.FlowDirection = FlowDirection.TopDown;
@@ -281,9 +363,11 @@ public sealed class MainForm : Form
             _title.Text = "Select an app";
             _appName.Text = "No app selected";
             _appPath.Text = "-";
-            _today.Text = "Today: 0m";
-            _week.Text = "This week: 0m";
-            _total.Text = "Total: 0m";
+            _lastLaunch.Text = "Last launch: Never";
+            _today.Text = "0h 00m";
+            _week.Text = "0h 00m";
+            _total.Text = "0h 00m";
+            _heroIcon.Image = GetHeroIconImage("default", null);
             _sessions.SuspendLayout();
             _sessions.Controls.Clear();
             _sessions.Controls.Add(new Label { Text = "No sessions yet", AutoSize = true, ForeColor = Color.FromArgb(85, 113, 136) });
@@ -294,9 +378,14 @@ public sealed class MainForm : Form
         _title.Text = d.AppName;
         _appName.Text = d.AppName;
         _appPath.Text = d.ExecutablePath ?? "Unknown path";
-        _today.Text = $"Today: {FormatDuration(d.Duration)}";
-        _week.Text = $"This week: {FormatDuration(TimeSpan.FromSeconds(d.Duration.TotalSeconds * 2.6))}";
-        _total.Text = $"Total: {FormatDuration(d.Duration)}";
+        _lastLaunch.Text = $"Last launch: {d.LastLaunchUtc?.ToLocalTime().ToString("g") ?? "Never"}";
+        var todayValue = FormatDuration(d.Duration);
+        var weekValue = FormatDuration(TimeSpan.FromSeconds(d.Duration.TotalSeconds * 2.6));
+        var totalValue = FormatDuration(d.Duration);
+        _today.Text = todayValue;
+        _week.Text = weekValue;
+        _total.Text = totalValue;
+        _heroIcon.Image = GetHeroIconImage(d.AppName, d.ExecutablePath);
 
         _sessions.SuspendLayout();
         _sessions.Controls.Clear();
@@ -424,6 +513,49 @@ public sealed class MainForm : Form
         }
     }
 
+    private Image GetHeroIconImage(string appName, string? executablePath)
+    {
+        if (_heroIconCache.TryGetValue(appName, out var cached))
+        {
+            return cached;
+        }
+
+        Image iconImage;
+        if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+        {
+            iconImage = ResizeImage(SystemIcons.Application.ToBitmap(), 56, 56);
+        }
+        else
+        {
+            try
+            {
+                using var icon = Icon.ExtractAssociatedIcon(executablePath);
+                iconImage = icon is null
+                    ? ResizeImage(SystemIcons.Application.ToBitmap(), 56, 56)
+                    : ResizeImage(icon.ToBitmap(), 56, 56);
+            }
+            catch
+            {
+                iconImage = ResizeImage(SystemIcons.Application.ToBitmap(), 56, 56);
+            }
+        }
+
+        _heroIconCache[appName] = iconImage;
+        return iconImage;
+    }
+
+    private static Image ResizeImage(Image source, int width, int height)
+    {
+        var target = new Bitmap(width, height);
+        using var graphics = Graphics.FromImage(target);
+        graphics.CompositingQuality = CompositingQuality.HighQuality;
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.SmoothingMode = SmoothingMode.HighQuality;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        graphics.DrawImage(source, 0, 0, width, height);
+        return target;
+    }
+
     private void RestoreState()
     {
         try { _tracker.LoadState(_sessionPath); } catch { }
@@ -465,6 +597,18 @@ public sealed class MainForm : Form
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(appData, "StrideTracker", "settings.json");
+    }
+
+    private static void ApplyHeaderButtonStyle(Button button)
+    {
+        button.BackColor = Color.FromArgb(26, 44, 60);
+        button.ForeColor = Color.FromArgb(230, 237, 243);
+        button.FlatStyle = FlatStyle.Flat;
+        button.FlatAppearance.BorderColor = Color.FromArgb(44, 66, 84);
+        button.FlatAppearance.BorderSize = 1;
+        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(34, 58, 78);
+        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(20, 38, 54);
+        button.Margin = new Padding(6, 0, 0, 0);
     }
 
     private void EnableAntiFlicker()
