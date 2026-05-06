@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StrideTracker — App Details</title>
+    <style>
+        :root {
+            --bg-deep: #0a141c;
+            --bg-primary: #101d28;
+            --bg-sidebar: #0c1824;
+            --bg-card: #182836;
+            --bg-card-hover: #1e3244;
+            --bg-glass: rgba(24, 40, 54, 0.75);
+            --text-primary: #e6edf3;
+            --text-secondary: #9bb2c7;
+            --text-dim: #557188;
+            --accent: #4db8f0;
+            --accent-bright: #7dd4ff;
+            --accent-glow: rgba(77, 184, 240, 0.2);
+            --accent-glow-strong: rgba(77, 184, 240, 0.4);
+            --green: #8bc34a;
+            --green-glow: rgba(139, 195, 74, 0.25);
+            --orange: #ffb74d;
+            --red: #ef5350;
+            --red-glow: rgba(239, 83, 80, 0.25);
+            --radius: 8px;
+            --radius-sm: 6px;
+            --radius-lg: 12px;
+            --font: 'Motiva Sans', 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+            --glass-blur: blur(14px);
+            --card-shadow: 0 4px 24px rgba(0,0,0,0.45);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: var(--font);
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            display: flex;
+        }
+
+        /* ── Sidebar ──────────────────────── */
+        .sidebar {
+            width: 260px;
+            min-width: 260px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+        }
+
+        .sidebar-header {
+            padding: 20px 20px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            flex-shrink: 0;
+        }
+
+        .sidebar-logo {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent-bright) 0%, var(--accent) 50%, #3d8ec9 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 0 15px var(--accent-glow));
+        }
+
+        .sidebar-subtitle {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .sidebar-search {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            flex-shrink: 0;
+        }
+
+        .search-input {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-family: var(--font);
+            outline: none;
+            transition: all 0.2s ease;
+        }
+        .search-input::placeholder { color: var(--text-dim); }
+        .search-input:focus {
+            border-color: rgba(77,184,240,0.4);
+            box-shadow: 0 0 12px var(--accent-glow);
+            background: rgba(255,255,255,0.08);
+        }
+
+        .sidebar-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        .sidebar-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            border-left: 3px solid transparent;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+        .sidebar-item:hover {
+            background: rgba(255,255,255,0.04);
+            color: var(--text-primary);
+        }
+        .sidebar-item.active {
+            background: rgba(77,184,240,0.08);
+            border-left-color: var(--accent);
+            color: var(--text-primary);
+            box-shadow: inset 0 0 20px rgba(77,184,240,0.05);
+        }
+        .sidebar-item.active .sidebar-item-time {
+            color: var(--accent-bright);
+        }
+
+        .sidebar-item-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: var(--radius-sm);
+            background: rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .sidebar-item.active .sidebar-item-icon {
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        .sidebar-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .sidebar-item-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sidebar-item-time {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-variant-numeric: tabular-nums;
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+        }
+
+        .sidebar-footer {
+            border-top: 1px solid rgba(255,255,255,0.05);
+            padding: 12px 20px;
+            flex-shrink: 0;
+        }
+        .sidebar-footer-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-dim);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 6px 0;
+            transition: color 0.15s ease;
+        }
+        .sidebar-footer-btn:hover {
+            color: var(--text-secondary);
+        }
+
+        /* ── Main Content ──────────────────── */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        /* ── Header ───────────────────────── */
+        .header {
+            background: rgba(10, 18, 26, 0.85);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            height: 60px;
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+            flex-shrink: 0;
+        }
+
+        .back-btn {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-secondary);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+        .back-btn:hover {
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            border-color: rgba(255,255,255,0.2);
+        }
+
+        .header-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .header-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+        }
+
+        /* ── Main Scroll Area ─────────────── */
+        .main-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 28px 24px;
+        }
+        .main-scroll-inner {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* ── Hero Card ────────────────────── */
+        .hero-card {
+            background: var(--bg-glass);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: var(--radius-lg);
+            padding: 28px 32px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: var(--card-shadow);
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+        .hero-card::before {
+            content: '';
+            position: absolute;
+            top: -60%;
+            right: -15%;
+            width: 280px;
+            height: 280px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+            border-radius: 50%;
+        }
+
+        .hero-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: var(--radius);
+            background: rgba(255,255,255,0.06);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            flex-shrink: 0;
+            box-shadow: 0 0 20px var(--accent-glow);
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-info {
+            position: relative;
+            z-index: 1;
+            min-width: 0;
+            flex: 1;
+        }
+        .hero-name {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .hero-path {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        .hero-stat {
+            display: flex;
+            flex-direction: column;
+        }
+        .hero-stat-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+        .hero-stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-bright);
+        }
+
+        .hero-launch-btn {
+            flex-shrink: 0;
+            position: relative;
+            z-index: 1;
+            background: linear-gradient(135deg, rgba(139,195,74,0.2) 0%, rgba(104,159,56,0.15) 100%);
+            border: 1px solid rgba(139,195,74,0.4);
+            color: var(--green);
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: var(--font);
+            letter-spacing: 0.5px;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .hero-launch-btn:hover {
+            background: linear-gradient(135deg, rgba(139,195,74,0.3) 0%, rgba(104,159,56,0.25) 100%);
+            border-color: rgba(139,195,74,0.6);
+            box-shadow: 0 0 30px var(--green-glow), 0 8px 25px rgba(0,0,0,0.4);
+            transform: translateY(-1px);
+        }
+        .hero-launch-btn:active {
+            transform: scale(0.96);
+        }
+
+        /* ── Section ──────────────────────── */
+        .section-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            margin-top: 28px;
+        }
+
+        /* ── Time Chart (bars) ────────────── */
+        .chart-bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+            height: 120px;
+            background: var(--bg-glass);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: var(--radius-lg);
+            padding: 16px 18px 12px;
+            box-shadow: var(--card-shadow);
+        }
+        .chart-bar-wrap {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            height: 100%;
+            justify-content: flex-end;
+        }
+        .chart-bar {
+            width: 100%;
+            max-width: 48px;
+            background: linear-gradient(to top, var(--accent), var(--accent-bright));
+            border-radius: 4px 4px 0 0;
+            transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            min-height: 4px;
+            box-shadow: 0 0 8px var(--accent-glow);
+        }
+        .chart-bar.today {
+            background: linear-gradient(to top, var(--green), #aed581);
+            box-shadow: 0 0 12px var(--green-glow);
+        }
+        .chart-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+
+        /* ── Session List ─────────────────── */
+        .session-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .session-row {
+            background: var(--bg-glass);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: var(--radius);
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.15s ease;
+        }
+        .session-row:hover {
+            background: var(--bg-card-hover);
+            border-color: rgba(255,255,255,0.1);
+        }
+        .session-date {
+            font-size: 12px;
+            color: var(--text-secondary);
+            min-width: 90px;
+        }
+        .session-time {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+        }
+        .session-bar-wrap {
+            flex: 1;
+            height: 4px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .session-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 2px;
+            transition: width 0.4s ease;
+        }
+
+        /* ── Buttons (shared) ─────────────── */
+        .btn-header {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-secondary);
+            padding: 6px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(4px);
+            letter-spacing: 0.3px;
+        }
+        .btn-header:hover {
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            border-color: rgba(255,255,255,0.2);
+        }
+
+        /* ── Empty State ──────────────────── */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-dim);
+        }
+
+        /* ── Scrollbar ────────────────────── */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.06);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">Stride</div>
+            <div class="sidebar-subtitle">Tracked Apps</div>
+        </div>
+        <div class="sidebar-search">
+            <input type="text" class="search-input" placeholder="Filter apps...">
+        </div>
+        <nav class="sidebar-list">
+            <div class="sidebar-item active">
+                <div class="sidebar-item-icon">💠</div>
+                <div class="sidebar-item-info">
+                    <div class="sidebar-item-name">Visual Studio Code</div>
+                    <div class="sidebar-item-time">Today 2h 34m</div>
+                </div>
+            </div>
+            <div class="sidebar-item">
+                <div class="sidebar-item-icon">🌐</div>
+                <div class="sidebar-item-info">
+                    <div class="sidebar-item-name">Google Chrome</div>
+                    <div class="sidebar-item-time">Today 1h 12m</div>
+                </div>
+            </div>
+            <div class="sidebar-item">
+                <div class="sidebar-item-icon">⬛</div>
+                <div class="sidebar-item-info">
+                    <div class="sidebar-item-name">Terminal</div>
+                    <div class="sidebar-item-time">Today 48m</div>
+                </div>
+            </div>
+            <div class="sidebar-item">
+                <div class="sidebar-item-icon">🎨</div>
+                <div class="sidebar-item-info">
+                    <div class="sidebar-item-name">Figma</div>
+                    <div class="sidebar-item-time">Today 35m</div>
+                </div>
+            </div>
+            <div class="sidebar-item">
+                <div class="sidebar-item-icon">🎵</div>
+                <div class="sidebar-item-info">
+                    <div class="sidebar-item-name">Spotify</div>
+                    <div class="sidebar-item-time">Today 1h 05m</div>
+                </div>
+            </div>
+            <div class="sidebar-item">
+                <div class="sidebar-item-icon">💬</div>
+                <div class="sidebar-item-info">
+                    <div class="sidebar-item-name">Slack</div>
+                    <div class="sidebar-item-time">Today 22m</div>
+                </div>
+            </div>
+            <div class="sidebar-item">
+                <div class="sidebar-item-icon">🎮</div>
+                <div class="sidebar-item-info">
+                    <div class="sidebar-item-name">Steam</div>
+                    <div class="sidebar-item-time">Today 15m</div>
+                </div>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="sidebar-footer-btn">
+                <span>⚙</span> Settings
+            </div>
+            <div class="sidebar-footer-btn">
+                <span>📊</span> All Apps
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+        <!-- Header -->
+        <div class="header">
+            <span class="header-title">Visual Studio Code</span>
+            <div class="header-actions">
+                <button class="btn-header">⋯</button>
+            </div>
+        </div>
+
+        <!-- Scrollable Area -->
+        <div class="main-scroll">
+            <div class="main-scroll-inner">
+
+                <!-- Hero -->
+                <div class="hero-card">
+                    <div class="hero-icon">💠</div>
+                    <div class="hero-info">
+                        <div class="hero-name">Visual Studio Code</div>
+                        <div class="hero-path">C:\Program Files\Microsoft VS Code\Code.exe</div>
+                        <div class="hero-stats">
+                            <div class="hero-stat">
+                                <span class="hero-stat-label">Today</span>
+                                <span class="hero-stat-value">2h 34m</span>
+                            </div>
+                            <div class="hero-stat">
+                                <span class="hero-stat-label">This Week</span>
+                                <span class="hero-stat-value">12h 10m</span>
+                            </div>
+                            <div class="hero-stat">
+                                <span class="hero-stat-label">Total</span>
+                                <span class="hero-stat-value">87h 22m</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="hero-launch-btn" onclick="alert('Launching VS Code...')">
+                        ▶ Launch
+                    </button>
+                </div>
+
+                <!-- Daily Chart -->
+                <div class="section-label">📊 Last 7 Days</div>
+                <div class="chart-bars">
+                    <div class="chart-bar-wrap">
+                        <div class="chart-bar" style="height: 45%;"></div>
+                        <span class="chart-label">Mon</span>
+                    </div>
+                    <div class="chart-bar-wrap">
+                        <div class="chart-bar" style="height: 70%;"></div>
+                        <span class="chart-label">Tue</span>
+                    </div>
+                    <div class="chart-bar-wrap">
+                        <div class="chart-bar" style="height: 30%;"></div>
+                        <span class="chart-label">Wed</span>
+                    </div>
+                    <div class="chart-bar-wrap">
+                        <div class="chart-bar" style="height: 85%;"></div>
+                        <span class="chart-label">Thu</span>
+                    </div>
+                    <div class="chart-bar-wrap">
+                        <div class="chart-bar" style="height: 55%;"></div>
+                        <span class="chart-label">Fri</span>
+                    </div>
+                    <div class="chart-bar-wrap">
+                        <div class="chart-bar" style="height: 20%;"></div>
+                        <span class="chart-label">Sat</span>
+                    </div>
+                    <div class="chart-bar-wrap">
+                        <div class="chart-bar today" style="height: 65%;"></div>
+                        <span class="chart-label" style="color:#8bc34a;">Today</span>
+                    </div>
+                </div>
+
+                <!-- Recent Sessions -->
+                <div class="section-label">📋 Recent Sessions</div>
+                <div class="session-list">
+                    <div class="session-row">
+                        <span class="session-date">Today</span>
+                        <span class="session-time">2h 34m</span>
+                        <div class="session-bar-wrap">
+                            <div class="session-bar-fill" style="width:100%;"></div>
+                        </div>
+                    </div>
+                    <div class="session-row">
+                        <span class="session-date">Yesterday</span>
+                        <span class="session-time">3h 05m</span>
+                        <div class="session-bar-wrap">
+                            <div class="session-bar-fill" style="width:85%;"></div>
+                        </div>
+                    </div>
+                    <div class="session-row">
+                        <span class="session-date">May 4</span>
+                        <span class="session-time">1h 42m</span>
+                        <div class="session-bar-wrap">
+                            <div class="session-bar-fill" style="width:50%;"></div>
+                        </div>
+                    </div>
+                    <div class="session-row">
+                        <span class="session-date">May 3</span>
+                        <span class="session-time">4h 11m</span>
+                        <div class="session-bar-wrap">
+                            <div class="session-bar-fill" style="width:95%;"></div>
+                        </div>
+                    </div>
+                    <div class="session-row">
+                        <span class="session-date">May 2</span>
+                        <span class="session-time">0h 28m</span>
+                        <div class="session-bar-wrap">
+                            <div class="session-bar-fill" style="width:12%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+</body>
+</html>
