@@ -23,6 +23,7 @@ public sealed class MainForm : Form
     private readonly string _defaultIconKey = "default";
     private readonly Button _startButton = new();
     private readonly Button _stopButton = new();
+    private readonly Button _launchButton = new();
 
     private AppSettings _settings;
     private bool _isTracking;
@@ -99,7 +100,10 @@ public sealed class MainForm : Form
         _stopButton.Text = "Stop";
         _stopButton.Width = 100;
 
-        controlsPanel.Controls.AddRange([_startButton, _stopButton]);
+        _launchButton.Text = "Launch app";
+        _launchButton.Width = 120;
+
+        controlsPanel.Controls.AddRange([_startButton, _stopButton, _launchButton]);
         Controls.Add(_menuStrip);
         Controls.Add(_usageListView);
         Controls.Add(controlsPanel);
@@ -110,6 +114,7 @@ public sealed class MainForm : Form
         _samplingTimer.Tick += OnSamplingTick;
         _startButton.Click += (_, _) => StartTracking();
         _stopButton.Click += (_, _) => StopTracking();
+        _launchButton.Click += (_, _) => LaunchApp();
         _preferencesMenuItem.Click += (_, _) => OpenSettingsDialog();
         FormClosing += OnFormClosing;
     }
@@ -376,6 +381,75 @@ public sealed class MainForm : Form
         {
             _samplingTimer.Stop();
             _samplingTimer.Start();
+        }
+    }
+
+    private void LaunchApp()
+    {
+        if (TryLaunchSelectedTrackedApp())
+        {
+            return;
+        }
+
+        using var openDialog = new OpenFileDialog
+        {
+            Title = "Choose app to launch",
+            Filter = "Applications (*.exe)|*.exe",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (openDialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        TryLaunchExecutable(openDialog.FileName);
+    }
+
+    private bool TryLaunchSelectedTrackedApp()
+    {
+        if (_usageListView.SelectedItems.Count == 0)
+        {
+            return false;
+        }
+
+        var selectedItem = _usageListView.SelectedItems[0];
+        if (selectedItem.Tag is not string appName)
+        {
+            return false;
+        }
+
+        var path = _tracker.GetKnownExecutablePath(appName);
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        TryLaunchExecutable(path);
+        return true;
+    }
+
+    private void TryLaunchExecutable(string executablePath)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executablePath,
+                UseShellExecute = true
+            };
+            Process.Start(startInfo);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Cannot launch application:\n{ex.Message}",
+                "Stride Tracker",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
         }
     }
 }
