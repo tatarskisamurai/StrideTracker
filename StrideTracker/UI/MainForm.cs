@@ -17,6 +17,10 @@ public sealed class MainForm : Form
     private readonly MenuStrip _menuStrip = new();
     private readonly ToolStripMenuItem _settingsMenuItem = new("Settings");
     private readonly ToolStripMenuItem _preferencesMenuItem = new("Preferences...");
+    private readonly TableLayoutPanel _rootLayout = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+    private readonly Panel _contentHostPanel = new() { Dock = DockStyle.Fill };
+    private readonly Panel _listPagePanel = new() { Dock = DockStyle.Fill };
+    private readonly Panel _detailsPagePanel = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly UsageListView _usageListView = new();
     private readonly ImageList _appIcons = new();
     private readonly Dictionary<string, string> _iconKeyByApp = new(StringComparer.OrdinalIgnoreCase);
@@ -25,10 +29,16 @@ public sealed class MainForm : Form
     private readonly Button _stopButton = new();
     private readonly Button _launchButton = new();
     private readonly Button _appPageButton = new();
+    private readonly Button _detailsBackButton = new();
+    private readonly Button _detailsLaunchButton = new();
+    private readonly Label _detailsAppNameValue = new();
+    private readonly Label _detailsLastLaunchValue = new();
+    private readonly Label _detailsTimeSpentValue = new();
 
     private AppSettings _settings;
     private bool _isTracking;
     private int _secondsSinceLastAutosave;
+    private string? _activeDetailsAppName;
 
     public MainForm()
     {
@@ -69,9 +79,15 @@ public sealed class MainForm : Form
 
     private void InitializeLayout()
     {
+        _rootLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
         _menuStrip.Items.Add(_settingsMenuItem);
         _settingsMenuItem.DropDownItems.Add(_preferencesMenuItem);
         MainMenuStrip = _menuStrip;
+        _menuStrip.Dock = DockStyle.Fill;
 
         _appIcons.ColorDepth = ColorDepth.Depth32Bit;
         _appIcons.ImageSize = new Size(16, 16);
@@ -85,6 +101,45 @@ public sealed class MainForm : Form
         _usageListView.Columns.Add("Application", 420);
         _usageListView.Columns.Add("Time", 160);
         _usageListView.Columns.Add("Percent", 120);
+        _listPagePanel.Controls.Add(_usageListView);
+
+        _detailsBackButton.Text = "< Back";
+        _detailsBackButton.Width = 100;
+        _detailsLaunchButton.Text = "Launch";
+        _detailsLaunchButton.Width = 100;
+
+        var detailsHeaderPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 52,
+            Padding = new Padding(12, 10, 12, 8),
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false
+        };
+        detailsHeaderPanel.Controls.AddRange([_detailsBackButton, _detailsLaunchButton]);
+
+        var detailsTable = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 140,
+            ColumnCount = 2,
+            RowCount = 3,
+            Padding = new Padding(12)
+        };
+        detailsTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
+        detailsTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        detailsTable.Controls.Add(new Label { Text = "Application:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+        detailsTable.Controls.Add(_detailsAppNameValue, 1, 0);
+        detailsTable.Controls.Add(new Label { Text = "Last launch:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
+        detailsTable.Controls.Add(_detailsLastLaunchValue, 1, 1);
+        detailsTable.Controls.Add(new Label { Text = "Time spent:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 2);
+        detailsTable.Controls.Add(_detailsTimeSpentValue, 1, 2);
+        _detailsAppNameValue.AutoSize = true;
+        _detailsLastLaunchValue.AutoSize = true;
+        _detailsTimeSpentValue.AutoSize = true;
+
+        _detailsPagePanel.Controls.Add(detailsTable);
+        _detailsPagePanel.Controls.Add(detailsHeaderPanel);
 
         var controlsPanel = new FlowLayoutPanel
         {
@@ -108,9 +163,14 @@ public sealed class MainForm : Form
         _appPageButton.Width = 110;
 
         controlsPanel.Controls.AddRange([_startButton, _stopButton, _launchButton, _appPageButton]);
-        Controls.Add(_menuStrip);
-        Controls.Add(_usageListView);
-        Controls.Add(controlsPanel);
+        _contentHostPanel.Controls.Add(_listPagePanel);
+        _contentHostPanel.Controls.Add(_detailsPagePanel);
+
+        _rootLayout.Controls.Add(_menuStrip, 0, 0);
+        _rootLayout.Controls.Add(_contentHostPanel, 0, 1);
+        _rootLayout.Controls.Add(controlsPanel, 0, 2);
+
+        Controls.Add(_rootLayout);
     }
 
     private void BindEvents()
@@ -120,6 +180,8 @@ public sealed class MainForm : Form
         _stopButton.Click += (_, _) => StopTracking();
         _launchButton.Click += (_, _) => LaunchApp();
         _appPageButton.Click += (_, _) => OpenAppPage();
+        _detailsBackButton.Click += (_, _) => ShowListPage();
+        _detailsLaunchButton.Click += (_, _) => LaunchFromDetailsPage();
         _preferencesMenuItem.Click += (_, _) => OpenSettingsDialog();
         _usageListView.DoubleClick += (_, _) => OpenAppPage();
         _usageListView.SelectedIndexChanged += (_, _) => UpdateUiState();
@@ -239,6 +301,7 @@ public sealed class MainForm : Form
         }
 
         _usageListView.EndUpdate();
+        RefreshDetailsPage();
         UpdateUiState();
     }
 
@@ -247,7 +310,10 @@ public sealed class MainForm : Form
         _startButton.Enabled = !_isTracking;
         _stopButton.Enabled = _isTracking;
         _launchButton.Enabled = _usageListView.Items.Count > 0;
-        _appPageButton.Enabled = _usageListView.SelectedItems.Count == 1;
+        _appPageButton.Enabled = _listPagePanel.Visible && _usageListView.SelectedItems.Count == 1;
+        _detailsLaunchButton.Enabled = _detailsPagePanel.Visible
+            && !string.IsNullOrWhiteSpace(_activeDetailsAppName)
+            && !string.IsNullOrWhiteSpace(_tracker.GetKnownExecutablePath(_activeDetailsAppName));
     }
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
@@ -488,8 +554,66 @@ public sealed class MainForm : Form
             return;
         }
 
-        using var form = new AppDetailsForm(details, path => TryLaunchExecutable(path, details.AppName));
-        _ = form.ShowDialog(this);
-        RefreshUsageList();
+        _activeDetailsAppName = details.AppName;
+        ShowDetailsPage();
+        RefreshDetailsPage();
+    }
+
+    private void ShowDetailsPage()
+    {
+        _listPagePanel.Visible = false;
+        _detailsPagePanel.Visible = true;
+        UpdateUiState();
+    }
+
+    private void ShowListPage()
+    {
+        _detailsPagePanel.Visible = false;
+        _listPagePanel.Visible = true;
+        UpdateUiState();
+    }
+
+    private void RefreshDetailsPage()
+    {
+        if (!_detailsPagePanel.Visible || string.IsNullOrWhiteSpace(_activeDetailsAppName))
+        {
+            return;
+        }
+
+        if (!_tracker.TryGetAppDetails(_activeDetailsAppName, out var details))
+        {
+            _detailsAppNameValue.Text = _activeDetailsAppName;
+            _detailsLastLaunchValue.Text = "Unknown";
+            _detailsTimeSpentValue.Text = "00:00:00";
+            UpdateUiState();
+            return;
+        }
+
+        _detailsAppNameValue.Text = details.AppName;
+        _detailsLastLaunchValue.Text = details.LastLaunchUtc?.ToLocalTime().ToString("g") ?? "Never";
+        _detailsTimeSpentValue.Text = details.Duration.ToString(@"hh\:mm\:ss");
+        UpdateUiState();
+    }
+
+    private void LaunchFromDetailsPage()
+    {
+        if (string.IsNullOrWhiteSpace(_activeDetailsAppName))
+        {
+            return;
+        }
+
+        var path = _tracker.GetKnownExecutablePath(_activeDetailsAppName);
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            MessageBox.Show(
+                this,
+                "Executable path is unknown for this app.",
+                "Stride Tracker",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        _ = TryLaunchExecutable(path, _activeDetailsAppName);
     }
 }
