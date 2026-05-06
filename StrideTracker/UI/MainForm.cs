@@ -25,6 +25,20 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "Stride Tracker";
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+        if (File.Exists(iconPath))
+        {
+            Icon = new Icon(iconPath);
+        }
+        else
+        {
+            var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            if (appIcon is not null)
+            {
+                Icon = appIcon;
+            }
+        }
+
         Width = 860;
         Height = 560;
         StartPosition = FormStartPosition.CenterScreen;
