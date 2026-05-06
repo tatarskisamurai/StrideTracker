@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using StrideTracker.Configuration;
 using StrideTracker.Tracking;
 
 namespace StrideTracker.UI;
@@ -7,10 +8,15 @@ namespace StrideTracker.UI;
 public sealed class MainForm : Form
 {
     private readonly AppUsageTracker _tracker = new();
-    private readonly System.Windows.Forms.Timer _samplingTimer = new() { Interval = 1000 };
+    private readonly System.Windows.Forms.Timer _samplingTimer = new();
     private readonly int _selfProcessId = Environment.ProcessId;
     private readonly string _sessionStatePath = BuildSessionStatePath();
+    private readonly string _settingsPath = BuildSettingsPath();
+    private readonly AppSettingsStore _settingsStore = new();
 
+    private readonly MenuStrip _menuStrip = new();
+    private readonly ToolStripMenuItem _settingsMenuItem = new("Settings");
+    private readonly ToolStripMenuItem _preferencesMenuItem = new("Preferences...");
     private readonly UsageListView _usageListView = new();
     private readonly ImageList _appIcons = new();
     private readonly Dictionary<string, string> _iconKeyByApp = new(StringComparer.OrdinalIgnoreCase);
@@ -18,12 +24,14 @@ public sealed class MainForm : Form
     private readonly Button _startButton = new();
     private readonly Button _stopButton = new();
 
+    private AppSettings _settings;
     private bool _isTracking;
-    private DateTimeOffset? _startedAt;
-    private int _ticksSinceLastAutosave;
+    private int _secondsSinceLastAutosave;
 
     public MainForm()
     {
+        _settings = _settingsStore.Load(_settingsPath);
+
         Text = "Stride Tracker";
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
         if (File.Exists(iconPath))
@@ -46,13 +54,23 @@ public sealed class MainForm : Form
 
         InitializeLayout();
         BindEvents();
+        ApplySettings(_settings);
         RestorePreviousState();
         RefreshUsageList();
         UpdateUiState();
+
+        if (_settings.StartTrackingOnLaunch)
+        {
+            StartTracking();
+        }
     }
 
     private void InitializeLayout()
     {
+        _menuStrip.Items.Add(_settingsMenuItem);
+        _settingsMenuItem.DropDownItems.Add(_preferencesMenuItem);
+        MainMenuStrip = _menuStrip;
+
         _appIcons.ColorDepth = ColorDepth.Depth32Bit;
         _appIcons.ImageSize = new Size(16, 16);
         _appIcons.Images.Add(_defaultIconKey, SystemIcons.Application.ToBitmap());
@@ -82,6 +100,7 @@ public sealed class MainForm : Form
         _stopButton.Width = 100;
 
         controlsPanel.Controls.AddRange([_startButton, _stopButton]);
+        Controls.Add(_menuStrip);
         Controls.Add(_usageListView);
         Controls.Add(controlsPanel);
     }
@@ -91,6 +110,7 @@ public sealed class MainForm : Form
         _samplingTimer.Tick += OnSamplingTick;
         _startButton.Click += (_, _) => StartTracking();
         _stopButton.Click += (_, _) => StopTracking();
+        _preferencesMenuItem.Click += (_, _) => OpenSettingsDialog();
         FormClosing += OnFormClosing;
     }
 
@@ -102,8 +122,7 @@ public sealed class MainForm : Form
         }
 
         _isTracking = true;
-        _startedAt = DateTimeOffset.Now;
-        _ticksSinceLastAutosave = 0;
+        _secondsSinceLastAutosave = 0;
         _samplingTimer.Start();
         UpdateUiState();
     }
@@ -141,11 +160,11 @@ public sealed class MainForm : Form
 
         _tracker.AddSample(sample);
         EnsureAppIcon(sample.ProcessName, sample.ProcessId, sample.ExecutablePath);
-        _ticksSinceLastAutosave++;
-        if (_ticksSinceLastAutosave >= 10)
+        _secondsSinceLastAutosave += _settings.SamplingIntervalSeconds;
+        if (_secondsSinceLastAutosave >= _settings.AutosaveIntervalSeconds)
         {
             PersistState();
-            _ticksSinceLastAutosave = 0;
+            _secondsSinceLastAutosave = 0;
         }
 
         RefreshUsageList();
@@ -322,5 +341,41 @@ public sealed class MainForm : Form
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(appData, "StrideTracker", "tracker-state.json");
+    }
+
+    private static string BuildSettingsPath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(appData, "StrideTracker", "settings.json");
+    }
+
+    private void ApplySettings(AppSettings settings)
+    {
+        _settings = new AppSettings
+        {
+            SamplingIntervalSeconds = Math.Clamp(settings.SamplingIntervalSeconds, 1, 30),
+            AutosaveIntervalSeconds = Math.Clamp(settings.AutosaveIntervalSeconds, 5, 300),
+            StartTrackingOnLaunch = settings.StartTrackingOnLaunch
+        };
+
+        _samplingTimer.Interval = _settings.SamplingIntervalSeconds * 1000;
+    }
+
+    private void OpenSettingsDialog()
+    {
+        using var settingsForm = new SettingsForm(_settings);
+        if (settingsForm.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        ApplySettings(settingsForm.ResultSettings);
+        _settingsStore.Save(_settingsPath, _settings);
+
+        if (_isTracking)
+        {
+            _samplingTimer.Stop();
+            _samplingTimer.Start();
+        }
     }
 }
