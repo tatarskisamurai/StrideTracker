@@ -9,6 +9,7 @@ public sealed class AppUsageTracker
 {
     private readonly Dictionary<string, TimeSpan> _durationsByApp = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _executablePathByApp = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> _lastLaunchUtcByApp = new(StringComparer.OrdinalIgnoreCase);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -21,6 +22,7 @@ public sealed class AppUsageTracker
     public void AddSample(ActiveWindowInfo sample)
     {
         RememberExecutablePath(sample.ProcessName, sample.ExecutablePath);
+        RememberLastLaunchUtc(sample.ProcessName, sample.CapturedAtUtc);
 
         if (_lastSample is not null)
         {
@@ -92,6 +94,7 @@ public sealed class AppUsageTracker
 
         _durationsByApp.Clear();
         _executablePathByApp.Clear();
+        _lastLaunchUtcByApp.Clear();
         _lastSample = null;
 
         foreach (var entry in state.Entries)
@@ -103,6 +106,7 @@ public sealed class AppUsageTracker
 
             _durationsByApp[entry.AppName] = TimeSpan.FromSeconds(entry.Seconds);
             RememberExecutablePath(entry.AppName, entry.ExecutablePath);
+            RememberLastLaunchUtc(entry.AppName, entry.LastLaunchUtc);
         }
     }
 
@@ -114,6 +118,38 @@ public sealed class AppUsageTracker
         }
 
         return null;
+    }
+
+    public DateTimeOffset? GetLastLaunchUtc(string appName)
+    {
+        if (_lastLaunchUtcByApp.TryGetValue(appName, out var value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    public bool TryGetAppDetails(string appName, out AppDetails details)
+    {
+        if (!_durationsByApp.TryGetValue(appName, out var duration))
+        {
+            details = default!;
+            return false;
+        }
+
+        details = new AppDetails(
+            AppName: appName,
+            Duration: duration,
+            ExecutablePath: GetKnownExecutablePath(appName),
+            LastLaunchUtc: GetLastLaunchUtc(appName));
+        return true;
+    }
+
+    public void MarkLaunched(string appName, DateTimeOffset launchedAtUtc, string? executablePath = null)
+    {
+        RememberLastLaunchUtc(appName, launchedAtUtc);
+        RememberExecutablePath(appName, executablePath);
     }
 
     public static ActiveWindowInfo? TryGetActiveWindowInfo()
@@ -174,7 +210,7 @@ public sealed class AppUsageTracker
     }
 
     private sealed record AppUsageReportEntry(string AppName, double Seconds);
-    private sealed record AppUsageEntry(string AppName, double Seconds, string? ExecutablePath);
+    private sealed record AppUsageEntry(string AppName, double Seconds, string? ExecutablePath, DateTimeOffset? LastLaunchUtc);
     private sealed record TrackerState(DateTimeOffset SavedAtUtc, AppUsageEntry[] Entries);
 
     private AppUsageEntry[] GetOrderedEntries()
@@ -184,7 +220,8 @@ public sealed class AppUsageTracker
             .Select(x => new AppUsageEntry(
                 AppName: x.Key,
                 Seconds: x.Value.TotalSeconds,
-                ExecutablePath: GetKnownExecutablePath(x.Key)))
+                ExecutablePath: GetKnownExecutablePath(x.Key),
+                LastLaunchUtc: GetLastLaunchUtc(x.Key)))
             .ToArray();
     }
 
@@ -197,6 +234,22 @@ public sealed class AppUsageTracker
 
         _executablePathByApp[appName] = executablePath;
     }
+
+    private void RememberLastLaunchUtc(string appName, DateTimeOffset? launchedAtUtc)
+    {
+        if (string.IsNullOrWhiteSpace(appName) || launchedAtUtc is null)
+        {
+            return;
+        }
+
+        _lastLaunchUtcByApp[appName] = launchedAtUtc.Value;
+    }
+
+    public sealed record AppDetails(
+        string AppName,
+        TimeSpan Duration,
+        string? ExecutablePath,
+        DateTimeOffset? LastLaunchUtc);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();

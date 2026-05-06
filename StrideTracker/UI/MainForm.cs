@@ -24,6 +24,7 @@ public sealed class MainForm : Form
     private readonly Button _startButton = new();
     private readonly Button _stopButton = new();
     private readonly Button _launchButton = new();
+    private readonly Button _appPageButton = new();
 
     private AppSettings _settings;
     private bool _isTracking;
@@ -103,7 +104,10 @@ public sealed class MainForm : Form
         _launchButton.Text = "Launch app";
         _launchButton.Width = 120;
 
-        controlsPanel.Controls.AddRange([_startButton, _stopButton, _launchButton]);
+        _appPageButton.Text = "App page";
+        _appPageButton.Width = 110;
+
+        controlsPanel.Controls.AddRange([_startButton, _stopButton, _launchButton, _appPageButton]);
         Controls.Add(_menuStrip);
         Controls.Add(_usageListView);
         Controls.Add(controlsPanel);
@@ -115,7 +119,10 @@ public sealed class MainForm : Form
         _startButton.Click += (_, _) => StartTracking();
         _stopButton.Click += (_, _) => StopTracking();
         _launchButton.Click += (_, _) => LaunchApp();
+        _appPageButton.Click += (_, _) => OpenAppPage();
         _preferencesMenuItem.Click += (_, _) => OpenSettingsDialog();
+        _usageListView.DoubleClick += (_, _) => OpenAppPage();
+        _usageListView.SelectedIndexChanged += (_, _) => UpdateUiState();
         FormClosing += OnFormClosing;
     }
 
@@ -239,6 +246,8 @@ public sealed class MainForm : Form
     {
         _startButton.Enabled = !_isTracking;
         _stopButton.Enabled = _isTracking;
+        _launchButton.Enabled = _usageListView.Items.Count > 0;
+        _appPageButton.Enabled = _usageListView.SelectedItems.Count == 1;
     }
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
@@ -405,7 +414,7 @@ public sealed class MainForm : Form
             return;
         }
 
-        TryLaunchExecutable(openDialog.FileName);
+        _ = TryLaunchExecutable(openDialog.FileName, appNameOverride: null);
     }
 
     private bool TryLaunchSelectedTrackedApp()
@@ -427,11 +436,11 @@ public sealed class MainForm : Form
             return false;
         }
 
-        TryLaunchExecutable(path);
+        _ = TryLaunchExecutable(path, appName);
         return true;
     }
 
-    private void TryLaunchExecutable(string executablePath)
+    private bool TryLaunchExecutable(string executablePath, string? appNameOverride)
     {
         try
         {
@@ -441,6 +450,13 @@ public sealed class MainForm : Form
                 UseShellExecute = true
             };
             Process.Start(startInfo);
+            var appName = string.IsNullOrWhiteSpace(appNameOverride)
+                ? Path.GetFileNameWithoutExtension(executablePath)
+                : appNameOverride;
+            _tracker.MarkLaunched(appName, DateTimeOffset.UtcNow, executablePath);
+            PersistState();
+            RefreshUsageList();
+            return true;
         }
         catch (Exception ex)
         {
@@ -450,6 +466,30 @@ public sealed class MainForm : Form
                 "Stride Tracker",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
+            return false;
         }
+    }
+
+    private void OpenAppPage()
+    {
+        if (_usageListView.SelectedItems.Count != 1)
+        {
+            return;
+        }
+
+        var selected = _usageListView.SelectedItems[0];
+        if (selected.Tag is not string appName)
+        {
+            return;
+        }
+
+        if (!_tracker.TryGetAppDetails(appName, out var details))
+        {
+            return;
+        }
+
+        using var form = new AppDetailsForm(details, path => TryLaunchExecutable(path, details.AppName));
+        _ = form.ShowDialog(this);
+        RefreshUsageList();
     }
 }
