@@ -353,9 +353,31 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
-            SplitterDistance = 420,
             BackColor = Color.FromArgb(10, 20, 28)
         };
+        const int tasksPanel1MinSize = 260;
+        const int tasksPanel2MinSize = 300;
+
+        void ApplySafeSplitterDistance()
+        {
+            var requiredMinWidth = tasksPanel1MinSize + tasksPanel2MinSize;
+            if (body.Width <= requiredMinWidth)
+            {
+                if (body.Panel1MinSize != 0) body.Panel1MinSize = 0;
+                if (body.Panel2MinSize != 0) body.Panel2MinSize = 0;
+                return;
+            }
+
+            if (body.Panel1MinSize != tasksPanel1MinSize) body.Panel1MinSize = tasksPanel1MinSize;
+            if (body.Panel2MinSize != tasksPanel2MinSize) body.Panel2MinSize = tasksPanel2MinSize;
+
+            var maxPanel1Width = body.Width - body.Panel2MinSize;
+            var target = Math.Clamp(360, body.Panel1MinSize, maxPanel1Width);
+            body.SplitterDistance = target;
+        }
+
+        body.SizeChanged += (_, _) => ApplySafeSplitterDistance();
+        body.HandleCreated += (_, _) => ApplySafeSplitterDistance();
 
         _tasksTree.Dock = DockStyle.Fill;
         _tasksTree.BackColor = Color.FromArgb(12, 24, 36);
@@ -363,19 +385,19 @@ public sealed class MainForm : Form
         _tasksTree.BorderStyle = BorderStyle.None;
         body.Panel1.Controls.Add(_tasksTree);
 
-        var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16), BackColor = Color.FromArgb(24, 40, 54) };
+        var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16), BackColor = Color.FromArgb(24, 40, 54), AutoScroll = true };
         _activeTaskLabel.Text = "Active: —";
         _activeTaskLabel.AutoSize = true;
         _activeTaskLabel.ForeColor = Color.FromArgb(230, 237, 243);
         _activeTaskLabel.Top = 12;
         _taskSummaryLabel.Text = "Select a task";
         _taskSummaryLabel.AutoSize = true;
+        _taskSummaryLabel.MaximumSize = new Size(320, 0);
         _taskSummaryLabel.ForeColor = Color.FromArgb(155, 178, 199);
         _taskSummaryLabel.Top = 42;
 
         _taskStartButton.Text = "Start selected";
         _taskStartButton.Width = 140;
-        _taskStartButton.Top = 86;
         _taskStartButton.BackColor = Color.FromArgb(46, 125, 50);
         _taskStartButton.ForeColor = Color.White;
         _taskStartButton.FlatStyle = FlatStyle.Flat;
@@ -383,17 +405,26 @@ public sealed class MainForm : Form
 
         _taskStopButton.Text = "Stop";
         _taskStopButton.Width = 100;
-        _taskStopButton.Left = 150;
-        _taskStopButton.Top = 86;
         _taskStopButton.BackColor = Color.FromArgb(183, 28, 28);
         _taskStopButton.ForeColor = Color.White;
         _taskStopButton.FlatStyle = FlatStyle.Flat;
         _taskStopButton.FlatAppearance.BorderSize = 0;
 
+        var taskButtons = new FlowLayoutPanel
+        {
+            Left = 0,
+            Top = 86,
+            Width = 330,
+            Height = 42,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false
+        };
+        taskButtons.Controls.Add(_taskStartButton);
+        taskButtons.Controls.Add(_taskStopButton);
+
         right.Controls.Add(_activeTaskLabel);
         right.Controls.Add(_taskSummaryLabel);
-        right.Controls.Add(_taskStartButton);
-        right.Controls.Add(_taskStopButton);
+        right.Controls.Add(taskButtons);
         body.Panel2.Controls.Add(right);
 
         _tasksPage.Controls.Add(body);
