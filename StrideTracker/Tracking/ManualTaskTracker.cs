@@ -99,6 +99,78 @@ public sealed class ManualTaskTracker
         return total;
     }
 
+    public TaskNode? CreateNode(string name, string? parentId, bool isGroup)
+    {
+        var trimmedName = name.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedName))
+        {
+            return null;
+        }
+
+        string? normalizedParentId = null;
+        if (!string.IsNullOrWhiteSpace(parentId))
+        {
+            if (!_nodesById.TryGetValue(parentId, out var parentNode))
+            {
+                return null;
+            }
+
+            normalizedParentId = parentNode.Id;
+        }
+
+        var nextSortOrder = GetChildren(normalizedParentId).Select(x => x.SortOrder).DefaultIfEmpty(0).Max() + 1;
+        var node = new TaskNode(
+            Id: BuildNodeId(trimmedName),
+            Name: trimmedName,
+            ParentId: normalizedParentId,
+            IsGroup: isGroup,
+            SortOrder: nextSortOrder);
+
+        _nodesById[node.Id] = node;
+        return node;
+    }
+
+    public bool RenameNode(string nodeId, string newName)
+    {
+        if (!_nodesById.TryGetValue(nodeId, out var node))
+        {
+            return false;
+        }
+
+        var trimmedName = newName.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedName))
+        {
+            return false;
+        }
+
+        _nodesById[node.Id] = node with { Name = trimmedName };
+        return true;
+    }
+
+    public bool DeleteNode(string nodeId)
+    {
+        if (!_nodesById.ContainsKey(nodeId))
+        {
+            return false;
+        }
+
+        var idsToDelete = GetDescendantIds(nodeId).Append(nodeId).ToArray();
+        foreach (var id in idsToDelete)
+        {
+            _nodesById.Remove(id);
+            _ownDurationsById.Remove(id);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_activeNodeId) &&
+            idsToDelete.Contains(_activeNodeId, StringComparer.OrdinalIgnoreCase))
+        {
+            _activeNodeId = null;
+            _lastTickUtc = null;
+        }
+
+        return true;
+    }
+
     public void SaveState(string path)
     {
         var dir = Path.GetDirectoryName(path);
@@ -178,6 +250,43 @@ public sealed class ManualTaskTracker
     private void AddNode(TaskNode node)
     {
         _nodesById[node.Id] = node;
+    }
+
+    private IEnumerable<string> GetDescendantIds(string nodeId)
+    {
+        foreach (var child in GetChildren(nodeId))
+        {
+            yield return child.Id;
+            foreach (var nestedChildId in GetDescendantIds(child.Id))
+            {
+                yield return nestedChildId;
+            }
+        }
+    }
+
+    private string BuildNodeId(string name)
+    {
+        var chars = name
+            .Trim()
+            .ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray();
+
+        var baseId = new string(chars).Trim('-');
+        if (string.IsNullOrWhiteSpace(baseId))
+        {
+            baseId = "task";
+        }
+
+        var candidate = baseId;
+        var suffix = 2;
+        while (_nodesById.ContainsKey(candidate))
+        {
+            candidate = $"{baseId}-{suffix}";
+            suffix++;
+        }
+
+        return candidate;
     }
 
     public sealed record TaskNode(string Id, string Name, string? ParentId, bool IsGroup, int SortOrder);

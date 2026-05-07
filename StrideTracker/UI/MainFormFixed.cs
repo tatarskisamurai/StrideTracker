@@ -50,6 +50,10 @@ public sealed class MainForm : Form
     private readonly Label _taskSummaryLabel = new();
     private readonly Button _taskStartButton = new();
     private readonly Button _taskStopButton = new();
+    private readonly Button _taskAddButton = new();
+    private readonly Button _taskAddFolderButton = new();
+    private readonly Button _taskRenameButton = new();
+    private readonly Button _taskDeleteButton = new();
 
     private AppSettings _appSettings;
     private bool _isTracking;
@@ -311,6 +315,10 @@ public sealed class MainForm : Form
         _tasksView.Click += (_, _) => ShowTasksPage();
         _taskStartButton.Click += (_, _) => StartSelectedTask();
         _taskStopButton.Click += (_, _) => StopTask();
+        _taskAddButton.Click += (_, _) => AddTaskNode(isGroup: false);
+        _taskAddFolderButton.Click += (_, _) => AddTaskNode(isGroup: true);
+        _taskRenameButton.Click += (_, _) => RenameSelectedTask();
+        _taskDeleteButton.Click += (_, _) => DeleteSelectedTask();
         _tasksTree.AfterSelect += (_, _) => UpdateTaskSummary();
         FormClosing += (_, _) =>
         {
@@ -410,6 +418,25 @@ public sealed class MainForm : Form
         _taskStopButton.FlatStyle = FlatStyle.Flat;
         _taskStopButton.FlatAppearance.BorderSize = 0;
 
+        _taskAddButton.Text = "+ Task";
+        _taskAddButton.Width = 100;
+        ApplyTaskButtonStyle(_taskAddButton);
+
+        _taskAddFolderButton.Text = "+ Folder";
+        _taskAddFolderButton.Width = 100;
+        ApplyTaskButtonStyle(_taskAddFolderButton);
+
+        _taskRenameButton.Text = "Rename";
+        _taskRenameButton.Width = 100;
+        ApplyTaskButtonStyle(_taskRenameButton);
+
+        _taskDeleteButton.Text = "Delete";
+        _taskDeleteButton.Width = 100;
+        _taskDeleteButton.BackColor = Color.FromArgb(123, 31, 31);
+        _taskDeleteButton.ForeColor = Color.White;
+        _taskDeleteButton.FlatStyle = FlatStyle.Flat;
+        _taskDeleteButton.FlatAppearance.BorderSize = 0;
+
         var taskButtons = new FlowLayoutPanel
         {
             Left = 0,
@@ -422,9 +449,24 @@ public sealed class MainForm : Form
         taskButtons.Controls.Add(_taskStartButton);
         taskButtons.Controls.Add(_taskStopButton);
 
+        var managementButtons = new FlowLayoutPanel
+        {
+            Left = 0,
+            Top = 136,
+            Width = 330,
+            Height = 82,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        managementButtons.Controls.Add(_taskAddButton);
+        managementButtons.Controls.Add(_taskAddFolderButton);
+        managementButtons.Controls.Add(_taskRenameButton);
+        managementButtons.Controls.Add(_taskDeleteButton);
+
         right.Controls.Add(_activeTaskLabel);
         right.Controls.Add(_taskSummaryLabel);
         right.Controls.Add(taskButtons);
+        right.Controls.Add(managementButtons);
         body.Panel2.Controls.Add(right);
 
         _tasksPage.Controls.Add(body);
@@ -682,6 +724,94 @@ public sealed class MainForm : Form
         PersistState();
     }
 
+    private void AddTaskNode(bool isGroup)
+    {
+        var parentId = GetParentIdForCreate();
+        var promptTitle = isGroup ? "Create folder" : "Create task";
+        if (!TryPromptTaskName(promptTitle, string.Empty, out var name))
+        {
+            return;
+        }
+
+        var created = _taskTracker.CreateNode(name, parentId, isGroup);
+        if (created is null)
+        {
+            MessageBox.Show(this, "Cannot create task node.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        RefreshTasksTree();
+        SelectTaskNode(created.Id);
+        PersistState();
+    }
+
+    private void RenameSelectedTask()
+    {
+        if (_tasksTree.SelectedNode is null)
+        {
+            MessageBox.Show(this, "Select a task first.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedId = _tasksTree.SelectedNode.Name;
+        var node = _taskTracker.GetNode(selectedId);
+        if (node is null)
+        {
+            return;
+        }
+
+        if (!TryPromptTaskName("Rename task", node.Name, out var newName))
+        {
+            return;
+        }
+
+        if (!_taskTracker.RenameNode(selectedId, newName))
+        {
+            MessageBox.Show(this, "Cannot rename task.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        RefreshTasksTree();
+        SelectTaskNode(selectedId);
+        PersistState();
+    }
+
+    private void DeleteSelectedTask()
+    {
+        if (_tasksTree.SelectedNode is null)
+        {
+            MessageBox.Show(this, "Select a task first.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedId = _tasksTree.SelectedNode.Name;
+        var node = _taskTracker.GetNode(selectedId);
+        if (node is null)
+        {
+            return;
+        }
+
+        var result = MessageBox.Show(
+            this,
+            $"Delete \"{node.Name}\" and all subtasks?",
+            "Task Tracker",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (result != DialogResult.Yes)
+        {
+            return;
+        }
+
+        if (!_taskTracker.DeleteNode(selectedId))
+        {
+            MessageBox.Show(this, "Cannot delete task.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        RefreshTasksTree();
+        PersistState();
+    }
+
     private void LaunchCurrentOrPick()
     {
         if (!string.IsNullOrWhiteSpace(_selectedApp))
@@ -880,6 +1010,110 @@ public sealed class MainForm : Form
                 return (Label: label, Duration: entry.Duration);
             })
             .ToArray();
+    }
+
+    private static void ApplyTaskButtonStyle(Button button)
+    {
+        button.BackColor = Color.FromArgb(35, 56, 74);
+        button.ForeColor = Color.FromArgb(230, 237, 243);
+        button.FlatStyle = FlatStyle.Flat;
+        button.FlatAppearance.BorderSize = 0;
+    }
+
+    private string? GetParentIdForCreate()
+    {
+        if (_tasksTree.SelectedNode is null)
+        {
+            return null;
+        }
+
+        var selected = _taskTracker.GetNode(_tasksTree.SelectedNode.Name);
+        if (selected is null)
+        {
+            return null;
+        }
+
+        return selected.IsGroup ? selected.Id : selected.ParentId;
+    }
+
+    private void SelectTaskNode(string nodeId)
+    {
+        var node = FindTreeNodeById(_tasksTree.Nodes, nodeId);
+        if (node is null)
+        {
+            return;
+        }
+
+        _tasksTree.SelectedNode = node;
+        node.EnsureVisible();
+    }
+
+    private bool TryPromptTaskName(string title, string initialValue, out string value)
+    {
+        using var dialog = new Form
+        {
+            Text = title,
+            Width = 380,
+            Height = 170,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false
+        };
+
+        var nameLabel = new Label
+        {
+            Text = "Name:",
+            Left = 14,
+            Top = 18,
+            Width = 60
+        };
+        var nameInput = new TextBox
+        {
+            Left = 14,
+            Top = 40,
+            Width = 334,
+            Text = initialValue
+        };
+        var ok = new Button
+        {
+            Text = "OK",
+            Left = 192,
+            Top = 78,
+            Width = 75,
+            DialogResult = DialogResult.OK
+        };
+        var cancel = new Button
+        {
+            Text = "Cancel",
+            Left = 273,
+            Top = 78,
+            Width = 75,
+            DialogResult = DialogResult.Cancel
+        };
+
+        dialog.Controls.Add(nameLabel);
+        dialog.Controls.Add(nameInput);
+        dialog.Controls.Add(ok);
+        dialog.Controls.Add(cancel);
+        dialog.AcceptButton = ok;
+        dialog.CancelButton = cancel;
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            value = string.Empty;
+            return false;
+        }
+
+        value = nameInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            MessageBox.Show(this, "Task name cannot be empty.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return false;
+        }
+
+        return true;
     }
 
     private static string FormatDuration(TimeSpan duration)
