@@ -7,4 +7,6 @@ public sealed class AppSettings
     public int AutosaveIntervalSeconds { get; set; } = 10;
 
     public bool StartTrackingOnLaunch { get; set; }
+
+    public string Language { get; set; } = "ru";
 }

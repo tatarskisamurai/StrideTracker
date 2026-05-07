@@ -24,6 +24,7 @@ public sealed class MainForm : Form
 
     private readonly UsageListView _appsList = new();
     private readonly TextBox _search = new();
+    private readonly Label _sidebarHeader = new();
     private readonly Label _title = new();
     private readonly Label _appName = new();
     private readonly Label _appPath = new();
@@ -46,6 +47,8 @@ public sealed class MainForm : Form
     private readonly Panel _appsPage = new();
     private readonly Panel _tasksPage = new();
     private readonly TreeView _tasksTree = new();
+    private readonly Button _tasksBackButton = new();
+    private readonly Label _tasksPageTitle = new();
     private readonly Label _activeTaskLabel = new();
     private readonly Label _taskSummaryLabel = new();
     private readonly Button _taskStartButton = new();
@@ -81,6 +84,7 @@ public sealed class MainForm : Form
         EnableAntiFlicker();
         BindEvents();
         ApplySettings(_appSettings);
+        ApplyLanguage();
         RestoreState();
         RefreshApps();
         UpdateUi();
@@ -105,14 +109,11 @@ public sealed class MainForm : Form
         Controls.Add(root);
 
         var sidebar = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(12, 24, 36) };
-        var sidebarHeader = new Label
-        {
-            Text = "Stride\nTRACKED APPS",
-            Dock = DockStyle.Top,
-            Height = 82,
-            ForeColor = Color.FromArgb(77, 184, 240),
-            Padding = new Padding(16, 14, 16, 8)
-        };
+        _sidebarHeader.Text = "Stride\nTRACKED APPS";
+        _sidebarHeader.Dock = DockStyle.Top;
+        _sidebarHeader.Height = 82;
+        _sidebarHeader.ForeColor = Color.FromArgb(77, 184, 240);
+        _sidebarHeader.Padding = new Padding(16, 14, 16, 8);
         _search.Dock = DockStyle.Top;
         _search.Height = 28;
         _search.Margin = new Padding(12);
@@ -151,7 +152,7 @@ public sealed class MainForm : Form
 
         sidebar.Controls.Add(_appsList);
         sidebar.Controls.Add(_search);
-        sidebar.Controls.Add(sidebarHeader);
+        sidebar.Controls.Add(_sidebarHeader);
         sidebar.Controls.Add(_tasksView);
         sidebar.Controls.Add(_settings);
 
@@ -333,29 +334,23 @@ public sealed class MainForm : Form
         _tasksPage.BackColor = Color.FromArgb(14, 24, 34);
 
         var header = new Panel { Dock = DockStyle.Top, Height = 58, BackColor = Color.FromArgb(14, 24, 34), Padding = new Padding(16, 12, 16, 12) };
-        var backButton = new Button
-        {
-            Text = "← Apps",
-            Width = 90,
-            Height = 30,
-            BackColor = Color.FromArgb(26, 44, 60),
-            ForeColor = Color.FromArgb(230, 237, 243),
-            FlatStyle = FlatStyle.Flat
-        };
-        backButton.FlatAppearance.BorderSize = 0;
-        backButton.Click += (_, _) => ShowAppsPage();
+        _tasksBackButton.Text = "← Apps";
+        _tasksBackButton.Width = 90;
+        _tasksBackButton.Height = 30;
+        _tasksBackButton.BackColor = Color.FromArgb(26, 44, 60);
+        _tasksBackButton.ForeColor = Color.FromArgb(230, 237, 243);
+        _tasksBackButton.FlatStyle = FlatStyle.Flat;
+        _tasksBackButton.FlatAppearance.BorderSize = 0;
+        _tasksBackButton.Click += (_, _) => ShowAppsPage();
 
-        var title = new Label
-        {
-            Text = "Task Tracker",
-            ForeColor = Color.FromArgb(230, 237, 243),
-            AutoSize = true,
-            Left = 110,
-            Top = 18,
-            Font = new Font("Segoe UI", 12F, FontStyle.Bold)
-        };
-        header.Controls.Add(backButton);
-        header.Controls.Add(title);
+        _tasksPageTitle.Text = "Task Tracker";
+        _tasksPageTitle.ForeColor = Color.FromArgb(230, 237, 243);
+        _tasksPageTitle.AutoSize = true;
+        _tasksPageTitle.Left = 110;
+        _tasksPageTitle.Top = 18;
+        _tasksPageTitle.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+        header.Controls.Add(_tasksBackButton);
+        header.Controls.Add(_tasksPageTitle);
 
         var body = new SplitContainer
         {
@@ -533,7 +528,7 @@ public sealed class MainForm : Form
         {
             EnsureIcon(name, null, _tracker.GetKnownExecutablePath(name));
             var item = new ListViewItem(name) { Tag = name, ImageKey = GetIconKey(name) };
-            item.SubItems.Add($"Today {FormatDuration(span)}");
+            item.SubItems.Add($"{T("Сегодня", "Today")} {FormatDuration(span)}");
             _appsList.Items.Add(item);
         }
 
@@ -616,25 +611,25 @@ public sealed class MainForm : Form
     {
         if (string.IsNullOrWhiteSpace(_selectedApp) || !_tracker.TryGetAppDetails(_selectedApp, out var d))
         {
-            _title.Text = "Select an app";
-            _appName.Text = "No app selected";
+            _title.Text = T("Выберите приложение", "Select an app");
+            _appName.Text = T("Приложение не выбрано", "No app selected");
             _appPath.Text = "-";
-            _lastLaunch.Text = "Last launch: Never";
+            _lastLaunch.Text = $"{T("Последний запуск", "Last launch")}: {T("Никогда", "Never")}";
             _today.Text = "0h 00m";
             _week.Text = "0h 00m";
             _total.Text = "0h 00m";
             _heroIcon.Image = GetHeroIconImage("default", null);
             _sessions.SuspendLayout();
             _sessions.Controls.Clear();
-            _sessions.Controls.Add(new Label { Text = "No sessions yet", AutoSize = true, ForeColor = Color.FromArgb(85, 113, 136) });
+            _sessions.Controls.Add(new Label { Text = T("Пока нет сессий", "No sessions yet"), AutoSize = true, ForeColor = Color.FromArgb(85, 113, 136) });
             _sessions.ResumeLayout();
             return;
         }
 
         _title.Text = d.AppName;
         _appName.Text = d.AppName;
-        _appPath.Text = d.ExecutablePath ?? "Unknown path";
-        _lastLaunch.Text = $"Last launch: {d.LastLaunchUtc?.ToLocalTime().ToString("g") ?? "Never"}";
+        _appPath.Text = d.ExecutablePath ?? T("Путь неизвестен", "Unknown path");
+        _lastLaunch.Text = $"{T("Последний запуск", "Last launch")}: {d.LastLaunchUtc?.ToLocalTime().ToString("g") ?? T("Никогда", "Never")}";
         var todayValue = FormatDuration(d.TodayDuration);
         var weekValue = FormatDuration(d.WeekDuration);
         var totalValue = FormatDuration(d.TotalDuration);
@@ -677,16 +672,16 @@ public sealed class MainForm : Form
         if (!string.IsNullOrWhiteSpace(active))
         {
             var activeNode = _taskTracker.GetNode(active);
-            _activeTaskLabel.Text = $"Active: {activeNode?.Name ?? active}";
+            _activeTaskLabel.Text = $"{T("Активная", "Active")}: {activeNode?.Name ?? active}";
         }
         else
         {
-            _activeTaskLabel.Text = "Active: —";
+            _activeTaskLabel.Text = $"{T("Активная", "Active")}: —";
         }
 
         if (_tasksTree.SelectedNode is null)
         {
-            _taskSummaryLabel.Text = "Select a task";
+            _taskSummaryLabel.Text = T("Выберите задачу", "Select a task");
             return;
         }
 
@@ -694,13 +689,13 @@ public sealed class MainForm : Form
         var node = _taskTracker.GetNode(selectedId);
         if (node is null)
         {
-            _taskSummaryLabel.Text = "Select a task";
+            _taskSummaryLabel.Text = T("Выберите задачу", "Select a task");
             return;
         }
 
         var own = FormatDuration(_taskTracker.GetOwnDuration(selectedId));
         var total = FormatDuration(_taskTracker.GetTotalDuration(selectedId));
-        _taskSummaryLabel.Text = $"Selected: {node.Name}\nOwn: {own} | Total: {total}";
+        _taskSummaryLabel.Text = $"{T("Выбрано", "Selected")}: {node.Name}\n{T("Личное", "Own")}: {own} | {T("Всего", "Total")}: {total}";
     }
 
     private void StartSelectedTask()
@@ -727,7 +722,7 @@ public sealed class MainForm : Form
     private void AddTaskNode(bool isGroup)
     {
         var parentId = GetParentIdForCreate();
-        var promptTitle = isGroup ? "Create folder" : "Create task";
+        var promptTitle = isGroup ? T("Создать папку", "Create folder") : T("Создать задачу", "Create task");
         if (!TryPromptTaskName(promptTitle, string.Empty, out var name))
         {
             return;
@@ -736,7 +731,7 @@ public sealed class MainForm : Form
         var created = _taskTracker.CreateNode(name, parentId, isGroup);
         if (created is null)
         {
-            MessageBox.Show(this, "Cannot create task node.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, T("Не удалось создать задачу.", "Cannot create task node."), "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -749,7 +744,7 @@ public sealed class MainForm : Form
     {
         if (_tasksTree.SelectedNode is null)
         {
-            MessageBox.Show(this, "Select a task first.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, T("Сначала выберите задачу.", "Select a task first."), "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -760,14 +755,14 @@ public sealed class MainForm : Form
             return;
         }
 
-        if (!TryPromptTaskName("Rename task", node.Name, out var newName))
+        if (!TryPromptTaskName(T("Переименовать задачу", "Rename task"), node.Name, out var newName))
         {
             return;
         }
 
         if (!_taskTracker.RenameNode(selectedId, newName))
         {
-            MessageBox.Show(this, "Cannot rename task.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, T("Не удалось переименовать задачу.", "Cannot rename task."), "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -780,7 +775,7 @@ public sealed class MainForm : Form
     {
         if (_tasksTree.SelectedNode is null)
         {
-            MessageBox.Show(this, "Select a task first.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, T("Сначала выберите задачу.", "Select a task first."), "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -793,7 +788,7 @@ public sealed class MainForm : Form
 
         var result = MessageBox.Show(
             this,
-            $"Delete \"{node.Name}\" and all subtasks?",
+            T($"Удалить \"{node.Name}\" и все подзадачи?", $"Delete \"{node.Name}\" and all subtasks?"),
             "Task Tracker",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
@@ -804,7 +799,7 @@ public sealed class MainForm : Form
 
         if (!_taskTracker.DeleteNode(selectedId))
         {
-            MessageBox.Show(this, "Cannot delete task.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, T("Не удалось удалить задачу.", "Cannot delete task."), "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -849,7 +844,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Cannot launch application:\n{ex.Message}", "Stride Tracker", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, $"{T("Не удалось запустить приложение", "Cannot launch application")}:\n{ex.Message}", "Stride Tracker", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
     }
@@ -873,10 +868,40 @@ public sealed class MainForm : Form
         {
             SamplingIntervalSeconds = Math.Clamp(settings.SamplingIntervalSeconds, 1, 30),
             AutosaveIntervalSeconds = Math.Clamp(settings.AutosaveIntervalSeconds, 5, 300),
-            StartTrackingOnLaunch = settings.StartTrackingOnLaunch
+            StartTrackingOnLaunch = settings.StartTrackingOnLaunch,
+            Language = string.Equals(settings.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "ru"
         };
         _samplingTimer.Interval = _appSettings.SamplingIntervalSeconds * 1000;
+        ApplyLanguage();
+        RefreshDetails();
+        RefreshTasksTree();
     }
+
+    private void ApplyLanguage()
+    {
+        _sidebarHeader.Text = "Stride\nTRACKED APPS";
+        _search.PlaceholderText = T("Фильтр приложений...", "Filter apps...");
+        _settings.Text = T("Настройки", "Settings");
+        _tasksView.Text = T("Задачи", "Tasks");
+        _start.Text = T("Старт", "Start");
+        _stop.Text = T("Стоп", "Stop");
+        _launch.Text = T("Запустить", "Launch");
+        _todayLabel.Text = T("Сегодня", "Today");
+        _weekLabel.Text = T("Неделя", "This Week");
+        _totalLabel.Text = T("Всего", "Total");
+        _tasksBackButton.Text = T("← Приложения", "← Apps");
+        _tasksPageTitle.Text = T("Трекер задач", "Task Tracker");
+        _taskStartButton.Text = T("Старт выбранной", "Start selected");
+        _taskStopButton.Text = T("Стоп", "Stop");
+        _taskAddButton.Text = T("+ Задача", "+ Task");
+        _taskAddFolderButton.Text = T("+ Папка", "+ Folder");
+        _taskRenameButton.Text = T("Переименовать", "Rename");
+        _taskDeleteButton.Text = T("Удалить", "Delete");
+    }
+
+    private string T(string ru, string en) => IsRussian ? ru : en;
+
+    private bool IsRussian => !string.Equals(_appSettings.Language, "en", StringComparison.OrdinalIgnoreCase);
 
     private void UpdateUi()
     {
@@ -990,7 +1015,7 @@ public sealed class MainForm : Form
         }
     }
 
-    private static (string Label, TimeSpan Duration)[] BuildSessionRows(AppUsageTracker.DailyUsageEntry[] dailyDurations)
+    private (string Label, TimeSpan Duration)[] BuildSessionRows(AppUsageTracker.DailyUsageEntry[] dailyDurations)
     {
         if (dailyDurations.Length == 0)
         {
@@ -1003,9 +1028,9 @@ public sealed class MainForm : Form
             .Select(entry =>
             {
                 var label = entry.Date == today
-                    ? "Today"
+                    ? T("Сегодня", "Today")
                     : entry.Date == today.AddDays(-1)
-                        ? "Yesterday"
+                        ? T("Вчера", "Yesterday")
                         : entry.Date.ToString("MMM d");
                 return (Label: label, Duration: entry.Duration);
             })
@@ -1064,7 +1089,7 @@ public sealed class MainForm : Form
 
         var nameLabel = new Label
         {
-            Text = "Name:",
+            Text = T("Название:", "Name:"),
             Left = 14,
             Top = 18,
             Width = 60
@@ -1078,7 +1103,7 @@ public sealed class MainForm : Form
         };
         var ok = new Button
         {
-            Text = "OK",
+            Text = T("ОК", "OK"),
             Left = 192,
             Top = 78,
             Width = 75,
@@ -1086,7 +1111,7 @@ public sealed class MainForm : Form
         };
         var cancel = new Button
         {
-            Text = "Cancel",
+            Text = T("Отмена", "Cancel"),
             Left = 273,
             Top = 78,
             Width = 75,
@@ -1109,7 +1134,7 @@ public sealed class MainForm : Form
         value = nameInput.Text.Trim();
         if (string.IsNullOrWhiteSpace(value))
         {
-            MessageBox.Show(this, "Task name cannot be empty.", "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, T("Название задачи не может быть пустым.", "Task name cannot be empty."), "Task Tracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return false;
         }
 
