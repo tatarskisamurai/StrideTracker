@@ -10,6 +10,7 @@ public sealed class AppUsageTracker
     private readonly Dictionary<string, TimeSpan> _durationsByApp = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _executablePathByApp = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _lastLaunchUtcByApp = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<DateOnly, TimeSpan>> _dailyDurationsByApp = new(StringComparer.OrdinalIgnoreCase);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -29,7 +30,7 @@ public sealed class AppUsageTracker
             var elapsed = sample.CapturedAtUtc - _lastSample.CapturedAtUtc;
             if (elapsed > TimeSpan.Zero)
             {
-                AddDuration(_lastSample.ProcessName, elapsed);
+                AddDuration(_lastSample.ProcessName, _lastSample.CapturedAtUtc, sample.CapturedAtUtc);
             }
         }
 
@@ -46,7 +47,7 @@ public sealed class AppUsageTracker
         var elapsed = stopTimeUtc - _lastSample.CapturedAtUtc;
         if (elapsed > TimeSpan.Zero)
         {
-            AddDuration(_lastSample.ProcessName, elapsed);
+            AddDuration(_lastSample.ProcessName, _lastSample.CapturedAtUtc, stopTimeUtc);
         }
 
         _lastSample = null;
@@ -95,6 +96,7 @@ public sealed class AppUsageTracker
         _durationsByApp.Clear();
         _executablePathByApp.Clear();
         _lastLaunchUtcByApp.Clear();
+        _dailyDurationsByApp.Clear();
         _lastSample = null;
 
         foreach (var entry in state.Entries)
@@ -107,6 +109,7 @@ public sealed class AppUsageTracker
             _durationsByApp[entry.AppName] = TimeSpan.FromSeconds(entry.Seconds);
             RememberExecutablePath(entry.AppName, entry.ExecutablePath);
             RememberLastLaunchUtc(entry.AppName, entry.LastLaunchUtc);
+            RememberDailyDurations(entry.AppName, entry.DailyDurations);
         }
     }
 
@@ -138,11 +141,21 @@ public sealed class AppUsageTracker
             return false;
         }
 
+        var todayDate = DateOnly.FromDateTime(DateTime.Now);
+        var weekStartDate = GetWeekStartDate(todayDate);
+        var hasDailyHistory = _dailyDurationsByApp.TryGetValue(appName, out var perDay) && perDay.Count > 0;
+        var todayDuration = hasDailyHistory ? GetDurationForDay(appName, todayDate) : duration;
+        var weekDuration = hasDailyHistory ? GetDurationForPeriod(appName, weekStartDate, todayDate) : duration;
+        var recentDailyDurations = GetRecentDailyDurations(appName, days: 7);
+
         details = new AppDetails(
             AppName: appName,
-            Duration: duration,
+            TotalDuration: duration,
+            TodayDuration: todayDuration,
+            WeekDuration: weekDuration,
             ExecutablePath: GetKnownExecutablePath(appName),
-            LastLaunchUtc: GetLastLaunchUtc(appName));
+            LastLaunchUtc: GetLastLaunchUtc(appName),
+            RecentDailyDurations: recentDailyDurations);
         return true;
     }
 
@@ -198,19 +211,29 @@ public sealed class AppUsageTracker
             ExecutablePath: executablePath);
     }
 
-    private void AddDuration(string appName, TimeSpan elapsed)
+    private void AddDuration(string appName, DateTimeOffset startUtc, DateTimeOffset endUtc)
     {
-        if (_durationsByApp.TryGetValue(appName, out var current))
+        var elapsed = endUtc - startUtc;
+        if (elapsed <= TimeSpan.Zero)
         {
-            _durationsByApp[appName] = current + elapsed;
             return;
         }
 
-        _durationsByApp[appName] = elapsed;
+        if (_durationsByApp.TryGetValue(appName, out var current))
+        {
+            _durationsByApp[appName] = current + elapsed;
+        }
+        else
+        {
+            _durationsByApp[appName] = elapsed;
+        }
+
+        AddDailyDurations(appName, startUtc.LocalDateTime, endUtc.LocalDateTime);
     }
 
     private sealed record AppUsageReportEntry(string AppName, double Seconds);
-    private sealed record AppUsageEntry(string AppName, double Seconds, string? ExecutablePath, DateTimeOffset? LastLaunchUtc);
+    private sealed record AppUsageEntry(string AppName, double Seconds, string? ExecutablePath, DateTimeOffset? LastLaunchUtc, DailyDurationEntry[] DailyDurations);
+    private sealed record DailyDurationEntry(string Date, double Seconds);
     private sealed record TrackerState(DateTimeOffset SavedAtUtc, AppUsageEntry[] Entries);
 
     private AppUsageEntry[] GetOrderedEntries()
@@ -221,7 +244,8 @@ public sealed class AppUsageTracker
                 AppName: x.Key,
                 Seconds: x.Value.TotalSeconds,
                 ExecutablePath: GetKnownExecutablePath(x.Key),
-                LastLaunchUtc: GetLastLaunchUtc(x.Key)))
+                LastLaunchUtc: GetLastLaunchUtc(x.Key),
+                DailyDurations: GetDailyEntries(x.Key)))
             .ToArray();
     }
 
@@ -245,11 +269,148 @@ public sealed class AppUsageTracker
         _lastLaunchUtcByApp[appName] = launchedAtUtc.Value;
     }
 
+    private void AddDailyDurations(string appName, DateTime localStart, DateTime localEnd)
+    {
+        if (localEnd <= localStart)
+        {
+            return;
+        }
+
+        if (!_dailyDurationsByApp.TryGetValue(appName, out var perDay))
+        {
+            perDay = new Dictionary<DateOnly, TimeSpan>();
+            _dailyDurationsByApp[appName] = perDay;
+        }
+
+        var cursor = localStart;
+        while (cursor < localEnd)
+        {
+            var nextDay = cursor.Date.AddDays(1);
+            var segmentEnd = localEnd < nextDay ? localEnd : nextDay;
+            var date = DateOnly.FromDateTime(cursor.Date);
+            var segmentDuration = segmentEnd - cursor;
+
+            if (perDay.TryGetValue(date, out var existing))
+            {
+                perDay[date] = existing + segmentDuration;
+            }
+            else
+            {
+                perDay[date] = segmentDuration;
+            }
+
+            cursor = segmentEnd;
+        }
+    }
+
+    private static DateOnly GetWeekStartDate(DateOnly today)
+    {
+        var mondayBasedDayOfWeek = ((int)today.DayOfWeek + 6) % 7;
+        return today.AddDays(-mondayBasedDayOfWeek);
+    }
+
+    private TimeSpan GetDurationForDay(string appName, DateOnly date)
+    {
+        if (_dailyDurationsByApp.TryGetValue(appName, out var perDay) && perDay.TryGetValue(date, out var duration))
+        {
+            return duration;
+        }
+
+        return TimeSpan.Zero;
+    }
+
+    private TimeSpan GetDurationForPeriod(string appName, DateOnly startDate, DateOnly endDate)
+    {
+        if (!_dailyDurationsByApp.TryGetValue(appName, out var perDay))
+        {
+            return TimeSpan.Zero;
+        }
+
+        var total = TimeSpan.Zero;
+        foreach (var (date, duration) in perDay)
+        {
+            if (date < startDate || date > endDate)
+            {
+                continue;
+            }
+
+            total += duration;
+        }
+
+        return total;
+    }
+
+    private DailyUsageEntry[] GetRecentDailyDurations(string appName, int days)
+    {
+        if (!_dailyDurationsByApp.TryGetValue(appName, out var perDay))
+        {
+            return Array.Empty<DailyUsageEntry>();
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var result = new List<DailyUsageEntry>(days);
+        for (var i = 0; i < days; i++)
+        {
+            var day = today.AddDays(-i);
+            var duration = perDay.TryGetValue(day, out var value) ? value : TimeSpan.Zero;
+            result.Add(new DailyUsageEntry(day, duration));
+        }
+
+        return result.ToArray();
+    }
+
+    private DailyDurationEntry[] GetDailyEntries(string appName)
+    {
+        if (!_dailyDurationsByApp.TryGetValue(appName, out var perDay))
+        {
+            return Array.Empty<DailyDurationEntry>();
+        }
+
+        return perDay
+            .OrderByDescending(x => x.Key)
+            .Select(x => new DailyDurationEntry(x.Key.ToString("yyyy-MM-dd"), x.Value.TotalSeconds))
+            .ToArray();
+    }
+
+    private void RememberDailyDurations(string appName, DailyDurationEntry[]? entries)
+    {
+        if (string.IsNullOrWhiteSpace(appName) || entries is null || entries.Length == 0)
+        {
+            return;
+        }
+
+        var perDay = new Dictionary<DateOnly, TimeSpan>();
+        foreach (var entry in entries)
+        {
+            if (entry.Seconds <= 0 || string.IsNullOrWhiteSpace(entry.Date))
+            {
+                continue;
+            }
+
+            if (!DateOnly.TryParse(entry.Date, out var date))
+            {
+                continue;
+            }
+
+            perDay[date] = TimeSpan.FromSeconds(entry.Seconds);
+        }
+
+        if (perDay.Count > 0)
+        {
+            _dailyDurationsByApp[appName] = perDay;
+        }
+    }
+
     public sealed record AppDetails(
         string AppName,
-        TimeSpan Duration,
+        TimeSpan TotalDuration,
+        TimeSpan TodayDuration,
+        TimeSpan WeekDuration,
         string? ExecutablePath,
-        DateTimeOffset? LastLaunchUtc);
+        DateTimeOffset? LastLaunchUtc,
+        DailyUsageEntry[] RecentDailyDurations);
+
+    public sealed record DailyUsageEntry(DateOnly Date, TimeSpan Duration);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();

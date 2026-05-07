@@ -379,9 +379,9 @@ public sealed class MainForm : Form
         _appName.Text = d.AppName;
         _appPath.Text = d.ExecutablePath ?? "Unknown path";
         _lastLaunch.Text = $"Last launch: {d.LastLaunchUtc?.ToLocalTime().ToString("g") ?? "Never"}";
-        var todayValue = FormatDuration(d.Duration);
-        var weekValue = FormatDuration(TimeSpan.FromSeconds(d.Duration.TotalSeconds * 2.6));
-        var totalValue = FormatDuration(d.Duration);
+        var todayValue = FormatDuration(d.TodayDuration);
+        var weekValue = FormatDuration(d.WeekDuration);
+        var totalValue = FormatDuration(d.TotalDuration);
         _today.Text = todayValue;
         _week.Text = weekValue;
         _total.Text = totalValue;
@@ -389,7 +389,7 @@ public sealed class MainForm : Form
 
         _sessions.SuspendLayout();
         _sessions.Controls.Clear();
-        foreach (var entry in BuildSessionRows(d.Duration))
+        foreach (var entry in BuildSessionRows(d.RecentDailyDurations))
         {
             _sessions.Controls.Add(new Label
             {
@@ -566,16 +566,26 @@ public sealed class MainForm : Form
         try { _tracker.SaveState(_sessionPath); } catch { }
     }
 
-    private static (string Label, TimeSpan Duration)[] BuildSessionRows(TimeSpan total)
+    private static (string Label, TimeSpan Duration)[] BuildSessionRows(AppUsageTracker.DailyUsageEntry[] dailyDurations)
     {
-        return
-        [
-            ("Today", TimeSpan.FromSeconds(total.TotalSeconds * 0.34)),
-            ("Yesterday", TimeSpan.FromSeconds(total.TotalSeconds * 0.26)),
-            (DateTime.Now.AddDays(-2).ToString("MMM d"), TimeSpan.FromSeconds(total.TotalSeconds * 0.20)),
-            (DateTime.Now.AddDays(-3).ToString("MMM d"), TimeSpan.FromSeconds(total.TotalSeconds * 0.14)),
-            (DateTime.Now.AddDays(-4).ToString("MMM d"), TimeSpan.FromSeconds(total.TotalSeconds * 0.06))
-        ];
+        if (dailyDurations.Length == 0)
+        {
+            return Array.Empty<(string Label, TimeSpan Duration)>();
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        return dailyDurations
+            .Take(5)
+            .Select(entry =>
+            {
+                var label = entry.Date == today
+                    ? "Today"
+                    : entry.Date == today.AddDays(-1)
+                        ? "Yesterday"
+                        : entry.Date.ToString("MMM d");
+                return (Label: label, Duration: entry.Duration);
+            })
+            .ToArray();
     }
 
     private static string FormatDuration(TimeSpan duration)
