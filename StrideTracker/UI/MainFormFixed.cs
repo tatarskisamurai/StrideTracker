@@ -75,6 +75,10 @@ public sealed class MainForm : Form
     private bool _isTracking;
     private int _secondsSinceAutosave;
     private string? _selectedApp;
+    private bool _tasksTreeInitialized;
+    private bool _appsListInitialized;
+    private bool _isRefreshingApps;
+    private string _lastAppsFilter = string.Empty;
 
     public MainForm()
     {
@@ -99,7 +103,7 @@ public sealed class MainForm : Form
         ApplySettings(_appSettings);
         ApplyLanguage();
         RestoreState();
-        RefreshApps();
+        RefreshApps(force: true);
         UpdateUi();
 
         if (_appSettings.StartTrackingOnLaunch)
@@ -319,12 +323,17 @@ public sealed class MainForm : Form
         _samplingTimer.Tick += OnSamplingTick;
         _appsList.SelectedIndexChanged += (_, _) =>
         {
+            if (_isRefreshingApps)
+            {
+                return;
+            }
+
             _selectedApp = _appsList.SelectedItems.Count > 0 ? _appsList.SelectedItems[0].Tag as string : null;
             RefreshDetails();
             UpdateUi();
         };
         _appsList.DoubleClick += (_, _) => LaunchCurrentOrPick();
-        _search.TextChanged += (_, _) => RefreshApps();
+        _search.TextChanged += (_, _) => RefreshApps(force: true);
         _start.Click += (_, _) => StartTracking();
         _stop.Click += (_, _) => StopTracking();
         _launch.Click += (_, _) => LaunchCurrentOrPick();
@@ -652,11 +661,11 @@ public sealed class MainForm : Form
         _tracker.Flush(DateTimeOffset.UtcNow);
         PersistState();
         _isTracking = false;
-        RefreshApps();
+        RefreshApps(force: true);
         UpdateUi();
     }
 
-    private void RefreshApps()
+    private void RefreshApps(bool force = false)
     {
         var selected = _selectedApp;
         var q = _search.Text.Trim();
@@ -664,33 +673,92 @@ public sealed class MainForm : Form
             .OrderByDescending(x => x.Value)
             .Where(x => string.IsNullOrWhiteSpace(q) || x.Key.Contains(q, StringComparison.OrdinalIgnoreCase))
             .ToArray();
+        var filterChanged = !string.Equals(_lastAppsFilter, q, StringComparison.Ordinal);
+        var shouldRebuildList = force || filterChanged || !_appsListInitialized;
 
+        _isRefreshingApps = true;
         _appsList.BeginUpdate();
-        _appsList.Items.Clear();
-        foreach (var (name, span) in data)
+        if (shouldRebuildList)
         {
-            EnsureIcon(name, null, _tracker.GetKnownExecutablePath(name));
-            var item = new ListViewItem(name) { Tag = name, ImageKey = GetIconKey(name) };
-            item.SubItems.Add($"{T("Сегодня", "Today")} {FormatDuration(span)}");
-            _appsList.Items.Add(item);
+            _appsList.Items.Clear();
+            foreach (var (name, span) in data)
+            {
+                EnsureIcon(name, null, _tracker.GetKnownExecutablePath(name));
+                var item = new ListViewItem(name) { Tag = name, ImageKey = GetIconKey(name) };
+                item.SubItems.Add($"{T("Сегодня", "Today")} {FormatDuration(span)}");
+                _appsList.Items.Add(item);
+            }
+        }
+        else
+        {
+            var existingByName = _appsList.Items
+                .Cast<ListViewItem>()
+                .Where(i => i.Tag is string)
+                .ToDictionary(i => (string)i.Tag!, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (name, span) in data)
+            {
+                EnsureIcon(name, null, _tracker.GetKnownExecutablePath(name));
+                if (!existingByName.TryGetValue(name, out var item))
+                {
+                    item = new ListViewItem(name) { Tag = name, ImageKey = GetIconKey(name) };
+                    item.SubItems.Add($"{T("Сегодня", "Today")} {FormatDuration(span)}");
+                    _appsList.Items.Add(item);
+                    continue;
+                }
+
+                item.ImageKey = GetIconKey(name);
+                var todayText = $"{T("Сегодня", "Today")} {FormatDuration(span)}";
+                if (item.SubItems.Count < 2)
+                {
+                    item.SubItems.Add(todayText);
+                }
+                else if (!string.Equals(item.SubItems[1].Text, todayText, StringComparison.Ordinal))
+                {
+                    item.SubItems[1].Text = todayText;
+                }
+            }
         }
 
-        if (!string.IsNullOrWhiteSpace(selected))
+        var shouldRestoreSelection = shouldRebuildList && !(_appsList.Focused || _appsList.Capture);
+        if (!string.IsNullOrWhiteSpace(selected) && shouldRestoreSelection)
         {
             var item = _appsList.Items.Cast<ListViewItem>().FirstOrDefault(i => string.Equals(i.Tag as string, selected, StringComparison.OrdinalIgnoreCase));
-            if (item is not null) item.Selected = true;
+            if (item is not null)
+            {
+                item.Selected = true;
+                _appsListInitialized = true;
+            }
         }
-        if (_appsList.SelectedItems.Count == 0 && _appsList.Items.Count > 0) _appsList.Items[0].Selected = true;
-        _appsList.EndUpdate();
 
-        RefreshDetails();
-        RefreshTasksTree();
+        if (!_appsListInitialized && shouldRestoreSelection && _appsList.SelectedItems.Count == 0 && _appsList.Items.Count > 0)
+        {
+            _appsList.Items[0].Selected = true;
+            _appsListInitialized = true;
+        }
+
+        _appsList.EndUpdate();
+        _isRefreshingApps = false;
+        _lastAppsFilter = q;
+
+        if (_appsPage.Visible || force)
+        {
+            RefreshDetails();
+        }
+        if (_tasksPage.Visible)
+        {
+            RefreshTasksTree();
+        }
         UpdateUi();
     }
 
     private void RefreshTasksTree()
     {
         var selectedId = _tasksTree.SelectedNode?.Name;
+        var topNodeId = _tasksTree.TopNode?.Name;
+        var expandedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectExpandedNodeIds(_tasksTree.Nodes, expandedIds);
+
         _tasksTree.BeginUpdate();
         _tasksTree.Nodes.Clear();
 
@@ -699,7 +767,16 @@ public sealed class MainForm : Form
             _tasksTree.Nodes.Add(BuildTaskTreeNode(rootNode));
         }
 
-        _tasksTree.ExpandAll();
+        if (!_tasksTreeInitialized)
+        {
+            _tasksTree.ExpandAll();
+            _tasksTreeInitialized = true;
+        }
+        else
+        {
+            RestoreExpandedNodeState(_tasksTree.Nodes, expandedIds);
+        }
+
         _tasksTree.EndUpdate();
 
         if (!string.IsNullOrWhiteSpace(selectedId))
@@ -708,6 +785,15 @@ public sealed class MainForm : Form
             if (match is not null)
             {
                 _tasksTree.SelectedNode = match;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(topNodeId))
+        {
+            var topNode = FindTreeNodeById(_tasksTree.Nodes, topNodeId);
+            if (topNode is not null)
+            {
+                _tasksTree.TopNode = topNode;
             }
         }
 
@@ -748,6 +834,38 @@ public sealed class MainForm : Form
         }
 
         return null;
+    }
+
+    private static void CollectExpandedNodeIds(TreeNodeCollection nodes, ISet<string> expandedIds)
+    {
+        foreach (TreeNode node in nodes)
+        {
+            if (node.IsExpanded)
+            {
+                expandedIds.Add(node.Name);
+            }
+
+            if (node.Nodes.Count > 0)
+            {
+                CollectExpandedNodeIds(node.Nodes, expandedIds);
+            }
+        }
+    }
+
+    private static void RestoreExpandedNodeState(TreeNodeCollection nodes, ISet<string> expandedIds)
+    {
+        foreach (TreeNode node in nodes)
+        {
+            if (expandedIds.Contains(node.Name))
+            {
+                node.Expand();
+            }
+
+            if (node.Nodes.Count > 0)
+            {
+                RestoreExpandedNodeState(node.Nodes, expandedIds);
+            }
+        }
     }
 
     private void RefreshDetails()
@@ -992,7 +1110,7 @@ public sealed class MainForm : Form
             Process.Start(new ProcessStartInfo { FileName = executablePath, UseShellExecute = true });
             _tracker.MarkLaunched(appName, DateTimeOffset.UtcNow, executablePath);
             PersistState();
-            RefreshApps();
+            RefreshApps(force: true);
             return true;
         }
         catch (Exception ex)
