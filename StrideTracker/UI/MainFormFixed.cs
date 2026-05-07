@@ -10,6 +10,7 @@ namespace StrideTracker.UI;
 public sealed class MainForm : Form
 {
     private readonly AppUsageTracker _tracker = new();
+    private readonly ManualTaskTracker _taskTracker = new();
     private readonly AppSettingsStore _settingsStore = new();
     private readonly System.Windows.Forms.Timer _samplingTimer = new();
     private readonly ImageList _icons = new();
@@ -19,6 +20,7 @@ public sealed class MainForm : Form
     private readonly int _selfProcessId = Environment.ProcessId;
     private readonly string _sessionPath = BuildSessionPath();
     private readonly string _settingsPath = BuildSettingsPath();
+    private readonly string _tasksPath = BuildTasksPath();
 
     private readonly UsageListView _appsList = new();
     private readonly TextBox _search = new();
@@ -39,6 +41,15 @@ public sealed class MainForm : Form
     private readonly Button _stop = new();
     private readonly Button _launch = new();
     private readonly Button _settings = new();
+    private readonly Button _tasksView = new();
+
+    private readonly Panel _appsPage = new();
+    private readonly Panel _tasksPage = new();
+    private readonly TreeView _tasksTree = new();
+    private readonly Label _activeTaskLabel = new();
+    private readonly Label _taskSummaryLabel = new();
+    private readonly Button _taskStartButton = new();
+    private readonly Button _taskStopButton = new();
 
     private AppSettings _appSettings;
     private bool _isTracking;
@@ -124,9 +135,20 @@ public sealed class MainForm : Form
         _settings.TextAlign = ContentAlignment.MiddleLeft;
         _settings.Padding = new Padding(16, 0, 0, 0);
 
+        _tasksView.Text = "Tasks";
+        _tasksView.Dock = DockStyle.Bottom;
+        _tasksView.Height = 36;
+        _tasksView.FlatStyle = FlatStyle.Flat;
+        _tasksView.FlatAppearance.BorderSize = 0;
+        _tasksView.BackColor = Color.FromArgb(12, 24, 36);
+        _tasksView.ForeColor = Color.FromArgb(230, 237, 243);
+        _tasksView.TextAlign = ContentAlignment.MiddleLeft;
+        _tasksView.Padding = new Padding(16, 0, 0, 0);
+
         sidebar.Controls.Add(_appsList);
         sidebar.Controls.Add(_search);
         sidebar.Controls.Add(sidebarHeader);
+        sidebar.Controls.Add(_tasksView);
         sidebar.Controls.Add(_settings);
 
         var main = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 };
@@ -257,8 +279,18 @@ public sealed class MainForm : Form
         main.Controls.Add(header, 0, 0);
         main.Controls.Add(content, 0, 1);
 
+        _appsPage.Dock = DockStyle.Fill;
+        _appsPage.Controls.Add(main);
+
+        BuildTasksPage();
+        _tasksPage.Visible = false;
+
+        var mainHost = new Panel { Dock = DockStyle.Fill };
+        mainHost.Controls.Add(_appsPage);
+        mainHost.Controls.Add(_tasksPage);
+
         root.Controls.Add(sidebar, 0, 0);
-        root.Controls.Add(main, 1, 0);
+        root.Controls.Add(mainHost, 1, 0);
     }
 
     private void BindEvents()
@@ -276,6 +308,10 @@ public sealed class MainForm : Form
         _stop.Click += (_, _) => StopTracking();
         _launch.Click += (_, _) => LaunchCurrentOrPick();
         _settings.Click += (_, _) => OpenSettingsDialog();
+        _tasksView.Click += (_, _) => ShowTasksPage();
+        _taskStartButton.Click += (_, _) => StartSelectedTask();
+        _taskStopButton.Click += (_, _) => StopTask();
+        _tasksTree.AfterSelect += (_, _) => UpdateTaskSummary();
         FormClosing += (_, _) =>
         {
             if (_isTracking) StopTracking();
@@ -283,8 +319,92 @@ public sealed class MainForm : Form
         };
     }
 
+    private void BuildTasksPage()
+    {
+        _tasksPage.Dock = DockStyle.Fill;
+        _tasksPage.BackColor = Color.FromArgb(14, 24, 34);
+
+        var header = new Panel { Dock = DockStyle.Top, Height = 58, BackColor = Color.FromArgb(14, 24, 34), Padding = new Padding(16, 12, 16, 12) };
+        var backButton = new Button
+        {
+            Text = "← Apps",
+            Width = 90,
+            Height = 30,
+            BackColor = Color.FromArgb(26, 44, 60),
+            ForeColor = Color.FromArgb(230, 237, 243),
+            FlatStyle = FlatStyle.Flat
+        };
+        backButton.FlatAppearance.BorderSize = 0;
+        backButton.Click += (_, _) => ShowAppsPage();
+
+        var title = new Label
+        {
+            Text = "Task Tracker",
+            ForeColor = Color.FromArgb(230, 237, 243),
+            AutoSize = true,
+            Left = 110,
+            Top = 18,
+            Font = new Font("Segoe UI", 12F, FontStyle.Bold)
+        };
+        header.Controls.Add(backButton);
+        header.Controls.Add(title);
+
+        var body = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Vertical,
+            SplitterDistance = 420,
+            BackColor = Color.FromArgb(10, 20, 28)
+        };
+
+        _tasksTree.Dock = DockStyle.Fill;
+        _tasksTree.BackColor = Color.FromArgb(12, 24, 36);
+        _tasksTree.ForeColor = Color.FromArgb(230, 237, 243);
+        _tasksTree.BorderStyle = BorderStyle.None;
+        body.Panel1.Controls.Add(_tasksTree);
+
+        var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16), BackColor = Color.FromArgb(24, 40, 54) };
+        _activeTaskLabel.Text = "Active: —";
+        _activeTaskLabel.AutoSize = true;
+        _activeTaskLabel.ForeColor = Color.FromArgb(230, 237, 243);
+        _activeTaskLabel.Top = 12;
+        _taskSummaryLabel.Text = "Select a task";
+        _taskSummaryLabel.AutoSize = true;
+        _taskSummaryLabel.ForeColor = Color.FromArgb(155, 178, 199);
+        _taskSummaryLabel.Top = 42;
+
+        _taskStartButton.Text = "Start selected";
+        _taskStartButton.Width = 140;
+        _taskStartButton.Top = 86;
+        _taskStartButton.BackColor = Color.FromArgb(46, 125, 50);
+        _taskStartButton.ForeColor = Color.White;
+        _taskStartButton.FlatStyle = FlatStyle.Flat;
+        _taskStartButton.FlatAppearance.BorderSize = 0;
+
+        _taskStopButton.Text = "Stop";
+        _taskStopButton.Width = 100;
+        _taskStopButton.Left = 150;
+        _taskStopButton.Top = 86;
+        _taskStopButton.BackColor = Color.FromArgb(183, 28, 28);
+        _taskStopButton.ForeColor = Color.White;
+        _taskStopButton.FlatStyle = FlatStyle.Flat;
+        _taskStopButton.FlatAppearance.BorderSize = 0;
+
+        right.Controls.Add(_activeTaskLabel);
+        right.Controls.Add(_taskSummaryLabel);
+        right.Controls.Add(_taskStartButton);
+        right.Controls.Add(_taskStopButton);
+        body.Panel2.Controls.Add(right);
+
+        _tasksPage.Controls.Add(body);
+        _tasksPage.Controls.Add(header);
+    }
+
     private void OnSamplingTick(object? sender, EventArgs e)
     {
+        var nowUtc = DateTimeOffset.UtcNow;
+        _taskTracker.Tick(nowUtc);
+
         var sample = AppUsageTracker.TryGetActiveWindowInfo();
         if (sample is null) return;
         if (sample.ProcessId == _selfProcessId)
@@ -353,7 +473,70 @@ public sealed class MainForm : Form
         _appsList.EndUpdate();
 
         RefreshDetails();
+        RefreshTasksTree();
         UpdateUi();
+    }
+
+    private void RefreshTasksTree()
+    {
+        var selectedId = _tasksTree.SelectedNode?.Name;
+        _tasksTree.BeginUpdate();
+        _tasksTree.Nodes.Clear();
+
+        foreach (var rootNode in _taskTracker.GetChildren(null))
+        {
+            _tasksTree.Nodes.Add(BuildTaskTreeNode(rootNode));
+        }
+
+        _tasksTree.ExpandAll();
+        _tasksTree.EndUpdate();
+
+        if (!string.IsNullOrWhiteSpace(selectedId))
+        {
+            var match = FindTreeNodeById(_tasksTree.Nodes, selectedId);
+            if (match is not null)
+            {
+                _tasksTree.SelectedNode = match;
+            }
+        }
+
+        UpdateTaskSummary();
+    }
+
+    private TreeNode BuildTaskTreeNode(ManualTaskTracker.TaskNode node)
+    {
+        var icon = node.IsGroup ? "📁" : "🎯";
+        var total = FormatDuration(_taskTracker.GetTotalDuration(node.Id));
+        var treeNode = new TreeNode($"{icon} {node.Name} ({total})")
+        {
+            Name = node.Id
+        };
+
+        foreach (var child in _taskTracker.GetChildren(node.Id))
+        {
+            treeNode.Nodes.Add(BuildTaskTreeNode(child));
+        }
+
+        return treeNode;
+    }
+
+    private static TreeNode? FindTreeNodeById(TreeNodeCollection nodes, string id)
+    {
+        foreach (TreeNode node in nodes)
+        {
+            if (string.Equals(node.Name, id, StringComparison.OrdinalIgnoreCase))
+            {
+                return node;
+            }
+
+            var child = FindTreeNodeById(node.Nodes, id);
+            if (child is not null)
+            {
+                return child;
+            }
+        }
+
+        return null;
     }
 
     private void RefreshDetails()
@@ -400,6 +583,72 @@ public sealed class MainForm : Form
             });
         }
         _sessions.ResumeLayout();
+    }
+
+    private void ShowTasksPage()
+    {
+        _appsPage.Visible = false;
+        _tasksPage.Visible = true;
+        RefreshTasksTree();
+    }
+
+    private void ShowAppsPage()
+    {
+        _tasksPage.Visible = false;
+        _appsPage.Visible = true;
+    }
+
+    private void UpdateTaskSummary()
+    {
+        var active = _taskTracker.ActiveNodeId;
+        if (!string.IsNullOrWhiteSpace(active))
+        {
+            var activeNode = _taskTracker.GetNode(active);
+            _activeTaskLabel.Text = $"Active: {activeNode?.Name ?? active}";
+        }
+        else
+        {
+            _activeTaskLabel.Text = "Active: —";
+        }
+
+        if (_tasksTree.SelectedNode is null)
+        {
+            _taskSummaryLabel.Text = "Select a task";
+            return;
+        }
+
+        var selectedId = _tasksTree.SelectedNode.Name;
+        var node = _taskTracker.GetNode(selectedId);
+        if (node is null)
+        {
+            _taskSummaryLabel.Text = "Select a task";
+            return;
+        }
+
+        var own = FormatDuration(_taskTracker.GetOwnDuration(selectedId));
+        var total = FormatDuration(_taskTracker.GetTotalDuration(selectedId));
+        _taskSummaryLabel.Text = $"Selected: {node.Name}\nOwn: {own} | Total: {total}";
+    }
+
+    private void StartSelectedTask()
+    {
+        if (_tasksTree.SelectedNode is null)
+        {
+            return;
+        }
+
+        _taskTracker.Start(_tasksTree.SelectedNode.Name, DateTimeOffset.UtcNow);
+        UpdateTaskSummary();
+        RefreshTasksTree();
+        PersistState();
+    }
+
+    private void StopTask()
+    {
+        _taskTracker.Stop(DateTimeOffset.UtcNow);
+        UpdateTaskSummary();
+        RefreshTasksTree();
+        PersistState();
     }
 
     private void LaunchCurrentOrPick()
@@ -558,12 +807,26 @@ public sealed class MainForm : Form
 
     private void RestoreState()
     {
-        try { _tracker.LoadState(_sessionPath); } catch { }
+        try
+        {
+            _tracker.LoadState(_sessionPath);
+            _taskTracker.LoadState(_tasksPath);
+        }
+        catch
+        {
+        }
     }
 
     private void PersistState()
     {
-        try { _tracker.SaveState(_sessionPath); } catch { }
+        try
+        {
+            _tracker.SaveState(_sessionPath);
+            _taskTracker.SaveState(_tasksPath);
+        }
+        catch
+        {
+        }
     }
 
     private static (string Label, TimeSpan Duration)[] BuildSessionRows(AppUsageTracker.DailyUsageEntry[] dailyDurations)
@@ -607,6 +870,12 @@ public sealed class MainForm : Form
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(appData, "StrideTracker", "settings.json");
+    }
+
+    private static string BuildTasksPath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(appData, "StrideTracker", "tasks-state.json");
     }
 
     private static void ApplyHeaderButtonStyle(Button button)
