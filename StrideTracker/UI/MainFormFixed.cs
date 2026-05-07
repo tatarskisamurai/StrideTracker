@@ -63,9 +63,11 @@ public sealed class MainForm : Form
     private readonly Label _settingsSamplingLabel = new();
     private readonly Label _settingsAutosaveLabel = new();
     private readonly Label _settingsLanguageLabel = new();
+    private readonly Label _settingsThemeLabel = new();
     private readonly NumericUpDown _settingsSamplingInput = new();
     private readonly NumericUpDown _settingsAutosaveInput = new();
     private readonly ComboBox _settingsLanguageInput = new();
+    private readonly ComboBox _settingsThemeInput = new();
     private readonly CheckBox _settingsStartOnLaunchCheckBox = new();
     private readonly Button _settingsSaveButton = new();
 
@@ -532,12 +534,13 @@ public sealed class MainForm : Form
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 210,
+            Height = 250,
             ColumnCount = 2,
-            RowCount = 4
+            RowCount = 5
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
@@ -546,6 +549,7 @@ public sealed class MainForm : Form
         ConfigureSettingsLabel(_settingsSamplingLabel);
         ConfigureSettingsLabel(_settingsAutosaveLabel);
         ConfigureSettingsLabel(_settingsLanguageLabel);
+        ConfigureSettingsLabel(_settingsThemeLabel);
 
         _settingsSamplingInput.Minimum = 1;
         _settingsSamplingInput.Maximum = 30;
@@ -562,6 +566,13 @@ public sealed class MainForm : Form
         _settingsLanguageInput.Items.Add(new LanguageOption("ru", "Русский"));
         _settingsLanguageInput.Items.Add(new LanguageOption("en", "English"));
 
+        _settingsThemeInput.DropDownStyle = ComboBoxStyle.DropDownList;
+        _settingsThemeInput.Dock = DockStyle.Fill;
+        _settingsThemeInput.DisplayMember = nameof(ThemeOption.Label);
+        _settingsThemeInput.ValueMember = nameof(ThemeOption.Code);
+        _settingsThemeInput.Items.Add(new ThemeOption("dark", T("Темная", "Dark")));
+        _settingsThemeInput.Items.Add(new ThemeOption("light", T("Светло-голубая", "Light Blue")));
+
         _settingsStartOnLaunchCheckBox.ForeColor = Color.FromArgb(230, 237, 243);
         _settingsStartOnLaunchCheckBox.AutoSize = true;
         _settingsStartOnLaunchCheckBox.Dock = DockStyle.Fill;
@@ -572,7 +583,9 @@ public sealed class MainForm : Form
         grid.Controls.Add(_settingsAutosaveInput, 1, 1);
         grid.Controls.Add(_settingsLanguageLabel, 0, 2);
         grid.Controls.Add(_settingsLanguageInput, 1, 2);
-        grid.Controls.Add(_settingsStartOnLaunchCheckBox, 0, 3);
+        grid.Controls.Add(_settingsThemeLabel, 0, 3);
+        grid.Controls.Add(_settingsThemeInput, 1, 3);
+        grid.Controls.Add(_settingsStartOnLaunchCheckBox, 0, 4);
         grid.SetColumnSpan(_settingsStartOnLaunchCheckBox, 2);
 
         var actions = new FlowLayoutPanel
@@ -995,6 +1008,7 @@ public sealed class MainForm : Form
         _settingsAutosaveInput.Value = Math.Clamp(_appSettings.AutosaveIntervalSeconds, (int)_settingsAutosaveInput.Minimum, (int)_settingsAutosaveInput.Maximum);
         _settingsStartOnLaunchCheckBox.Checked = _appSettings.StartTrackingOnLaunch;
         SelectSettingsLanguage(_appSettings.Language);
+        SelectSettingsTheme(_appSettings.Theme);
     }
 
     private void SaveSettingsFromPage()
@@ -1004,7 +1018,8 @@ public sealed class MainForm : Form
             SamplingIntervalSeconds = (int)_settingsSamplingInput.Value,
             AutosaveIntervalSeconds = (int)_settingsAutosaveInput.Value,
             StartTrackingOnLaunch = _settingsStartOnLaunchCheckBox.Checked,
-            Language = (_settingsLanguageInput.SelectedItem as LanguageOption)?.Code ?? "ru"
+            Language = (_settingsLanguageInput.SelectedItem as LanguageOption)?.Code ?? "ru",
+            Theme = (_settingsThemeInput.SelectedItem as ThemeOption)?.Code ?? "dark"
         };
 
         ApplySettings(newSettings);
@@ -1031,9 +1046,11 @@ public sealed class MainForm : Form
             SamplingIntervalSeconds = Math.Clamp(settings.SamplingIntervalSeconds, 1, 30),
             AutosaveIntervalSeconds = Math.Clamp(settings.AutosaveIntervalSeconds, 5, 300),
             StartTrackingOnLaunch = settings.StartTrackingOnLaunch,
-            Language = string.Equals(settings.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "ru"
+            Language = string.Equals(settings.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "ru",
+            Theme = string.Equals(settings.Theme, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark"
         };
         _samplingTimer.Interval = _appSettings.SamplingIntervalSeconds * 1000;
+        ApplyTheme();
         ApplyLanguage();
         LoadSettingsToPage();
         RefreshDetails();
@@ -1065,15 +1082,133 @@ public sealed class MainForm : Form
         _settingsSamplingLabel.Text = T("Интервал сэмплинга (сек):", "Sampling interval (seconds):");
         _settingsAutosaveLabel.Text = T("Интервал автосохранения (сек):", "Autosave interval (seconds):");
         _settingsLanguageLabel.Text = T("Язык интерфейса:", "Interface language:");
+        _settingsThemeLabel.Text = T("Тема:", "Theme:");
         _settingsStartOnLaunchCheckBox.Text = T("Запускать трекинг автоматически при старте", "Start tracking automatically on launch");
         _settingsSaveButton.Text = T("Сохранить", "Save");
+        PopulateThemeOptions();
+        SelectSettingsTheme(_appSettings.Theme);
+    }
+
+    private void ApplyTheme()
+    {
+        var page = IsLightTheme ? Color.FromArgb(223, 241, 252) : Color.FromArgb(10, 20, 28);
+        var sidebar = IsLightTheme ? Color.FromArgb(197, 226, 245) : Color.FromArgb(12, 24, 36);
+        var surface = IsLightTheme ? Color.White : Color.FromArgb(24, 40, 54);
+        var surfaceAlt = IsLightTheme ? Color.FromArgb(236, 247, 255) : Color.FromArgb(14, 24, 34);
+        var input = IsLightTheme ? Color.White : Color.FromArgb(12, 24, 36);
+        var text = IsLightTheme ? Color.FromArgb(26, 57, 82) : Color.FromArgb(230, 237, 243);
+        var mutedText = IsLightTheme ? Color.FromArgb(78, 114, 143) : Color.FromArgb(155, 178, 199);
+        var accent = IsLightTheme ? Color.FromArgb(42, 127, 184) : Color.FromArgb(77, 184, 240);
+        var border = IsLightTheme ? Color.FromArgb(182, 212, 233) : Color.FromArgb(44, 66, 84);
+
+        BackColor = page;
+        _appsPage.BackColor = page;
+        _tasksPage.BackColor = page;
+        _settingsPage.BackColor = page;
+
+        _sidebarHeader.ForeColor = accent;
+        _search.BackColor = input;
+        _search.ForeColor = text;
+
+        _appsList.BackColor = sidebar;
+        _appsList.ForeColor = text;
+
+        _title.ForeColor = text;
+        _appName.ForeColor = text;
+        _todayLabel.ForeColor = text;
+        _weekLabel.ForeColor = text;
+        _totalLabel.ForeColor = text;
+        _today.ForeColor = text;
+        _week.ForeColor = text;
+        _total.ForeColor = text;
+        _heroDivider.BackColor = border;
+        _heroIcon.BackColor = surfaceAlt;
+
+        _tasksTree.BackColor = sidebar;
+        _tasksTree.ForeColor = text;
+        _activeTaskLabel.ForeColor = text;
+
+        _settingsSamplingLabel.ForeColor = text;
+        _settingsAutosaveLabel.ForeColor = text;
+        _settingsLanguageLabel.ForeColor = text;
+        _settingsThemeLabel.ForeColor = text;
+        _settingsStartOnLaunchCheckBox.ForeColor = text;
+        _settingsSamplingInput.BackColor = input;
+        _settingsSamplingInput.ForeColor = text;
+        _settingsAutosaveInput.BackColor = input;
+        _settingsAutosaveInput.ForeColor = text;
+        _settingsLanguageInput.BackColor = input;
+        _settingsLanguageInput.ForeColor = text;
+        _settingsThemeInput.BackColor = input;
+        _settingsThemeInput.ForeColor = text;
+
+        ApplyControlThemeRecursive(this, page, sidebar, surface, surfaceAlt, text);
+
+        ApplyHeaderButtonStyle(_start);
+        ApplyHeaderButtonStyle(_stop);
+        ApplyHeaderButtonStyle(_tasksBackButton);
+        ApplyHeaderButtonStyle(_settingsBackButton);
+        ApplyTaskButtonStyle(_taskAddButton);
+        ApplyTaskButtonStyle(_taskAddFolderButton);
+        ApplyTaskButtonStyle(_taskRenameButton);
+
+        _settings.BackColor = sidebar;
+        _settings.ForeColor = text;
+        _tasksView.BackColor = sidebar;
+        _tasksView.ForeColor = text;
+        _taskStartButton.BackColor = Color.FromArgb(46, 125, 50);
+        _taskStartButton.ForeColor = Color.White;
+        _taskStopButton.BackColor = Color.FromArgb(183, 28, 28);
+        _taskStopButton.ForeColor = Color.White;
+        _taskDeleteButton.BackColor = Color.FromArgb(123, 31, 31);
+        _taskDeleteButton.ForeColor = Color.White;
+        _launch.BackColor = Color.FromArgb(46, 125, 50);
+        _launch.ForeColor = Color.White;
+        _settingsSaveButton.BackColor = Color.FromArgb(46, 125, 50);
+        _settingsSaveButton.ForeColor = Color.White;
+
+        _appPath.ForeColor = mutedText;
+        _lastLaunch.ForeColor = mutedText;
+        _taskSummaryLabel.ForeColor = mutedText;
+        _tasksPageTitle.ForeColor = text;
+        _settingsPageTitle.ForeColor = text;
+    }
+
+    private static void ApplyControlThemeRecursive(Control root, Color page, Color sidebar, Color surface, Color surfaceAlt, Color text)
+    {
+        foreach (Control child in root.Controls)
+        {
+            switch (child)
+            {
+                case SplitContainer:
+                    child.BackColor = page;
+                    break;
+                case TableLayoutPanel:
+                case FlowLayoutPanel:
+                    child.BackColor = Color.Transparent;
+                    break;
+                case Panel:
+                    child.BackColor = child.Height <= 60 ? surfaceAlt : surface;
+                    break;
+                case Label label:
+                    if (label.ForeColor.A > 0)
+                    {
+                        label.ForeColor = text;
+                    }
+                    break;
+            }
+
+            ApplyControlThemeRecursive(child, page, sidebar, surface, surfaceAlt, text);
+        }
     }
 
     private string T(string ru, string en) => IsRussian ? ru : en;
 
     private bool IsRussian => !string.Equals(_appSettings.Language, "en", StringComparison.OrdinalIgnoreCase);
+    private bool IsLightTheme => string.Equals(_appSettings.Theme, "light", StringComparison.OrdinalIgnoreCase);
 
     private sealed record LanguageOption(string Code, string Label);
+    private sealed record ThemeOption(string Code, string Label);
 
     private void UpdateUi()
     {
@@ -1209,12 +1344,13 @@ public sealed class MainForm : Form
             .ToArray();
     }
 
-    private static void ApplyTaskButtonStyle(Button button)
+    private void ApplyTaskButtonStyle(Button button)
     {
-        button.BackColor = Color.FromArgb(35, 56, 74);
-        button.ForeColor = Color.FromArgb(230, 237, 243);
+        button.BackColor = IsLightTheme ? Color.White : Color.FromArgb(35, 56, 74);
+        button.ForeColor = IsLightTheme ? Color.FromArgb(26, 57, 82) : Color.FromArgb(230, 237, 243);
         button.FlatStyle = FlatStyle.Flat;
-        button.FlatAppearance.BorderSize = 0;
+        button.FlatAppearance.BorderSize = IsLightTheme ? 1 : 0;
+        button.FlatAppearance.BorderColor = IsLightTheme ? Color.FromArgb(182, 212, 233) : Color.FromArgb(44, 66, 84);
     }
 
     private static void ConfigureSettingsLabel(Label label)
@@ -1240,6 +1376,33 @@ public sealed class MainForm : Form
         if (_settingsLanguageInput.Items.Count > 0)
         {
             _settingsLanguageInput.SelectedIndex = 0;
+        }
+    }
+
+    private void PopulateThemeOptions()
+    {
+        var current = (_settingsThemeInput.SelectedItem as ThemeOption)?.Code ?? _appSettings.Theme;
+        _settingsThemeInput.Items.Clear();
+        _settingsThemeInput.Items.Add(new ThemeOption("dark", T("Темная", "Dark")));
+        _settingsThemeInput.Items.Add(new ThemeOption("light", T("Светло-голубая", "Light Blue")));
+        SelectSettingsTheme(current);
+    }
+
+    private void SelectSettingsTheme(string? themeCode)
+    {
+        var normalized = string.Equals(themeCode, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark";
+        foreach (var item in _settingsThemeInput.Items)
+        {
+            if (item is ThemeOption option && string.Equals(option.Code, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                _settingsThemeInput.SelectedItem = item;
+                return;
+            }
+        }
+
+        if (_settingsThemeInput.Items.Count > 0)
+        {
+            _settingsThemeInput.SelectedIndex = 0;
         }
     }
 
@@ -1366,15 +1529,15 @@ public sealed class MainForm : Form
         return Path.Combine(appData, "StrideTracker", "tasks-state.json");
     }
 
-    private static void ApplyHeaderButtonStyle(Button button)
+    private void ApplyHeaderButtonStyle(Button button)
     {
-        button.BackColor = Color.FromArgb(26, 44, 60);
-        button.ForeColor = Color.FromArgb(230, 237, 243);
+        button.BackColor = IsLightTheme ? Color.White : Color.FromArgb(26, 44, 60);
+        button.ForeColor = IsLightTheme ? Color.FromArgb(26, 57, 82) : Color.FromArgb(230, 237, 243);
         button.FlatStyle = FlatStyle.Flat;
-        button.FlatAppearance.BorderColor = Color.FromArgb(44, 66, 84);
+        button.FlatAppearance.BorderColor = IsLightTheme ? Color.FromArgb(182, 212, 233) : Color.FromArgb(44, 66, 84);
         button.FlatAppearance.BorderSize = 1;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(34, 58, 78);
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(20, 38, 54);
+        button.FlatAppearance.MouseOverBackColor = IsLightTheme ? Color.FromArgb(236, 247, 255) : Color.FromArgb(34, 58, 78);
+        button.FlatAppearance.MouseDownBackColor = IsLightTheme ? Color.FromArgb(223, 241, 252) : Color.FromArgb(20, 38, 54);
         button.Margin = new Padding(6, 0, 0, 0);
     }
 

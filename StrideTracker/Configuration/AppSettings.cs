@@ -9,4 +9,6 @@ public sealed class AppSettings
     public bool StartTrackingOnLaunch { get; set; }
 
     public string Language { get; set; } = "ru";
+
+    public string Theme { get; set; } = "dark";
 }
