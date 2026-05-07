@@ -46,6 +46,7 @@ public sealed class MainForm : Form
 
     private readonly Panel _appsPage = new();
     private readonly Panel _tasksPage = new();
+    private readonly Panel _settingsPage = new();
     private readonly TreeView _tasksTree = new();
     private readonly Button _tasksBackButton = new();
     private readonly Label _tasksPageTitle = new();
@@ -57,6 +58,16 @@ public sealed class MainForm : Form
     private readonly Button _taskAddFolderButton = new();
     private readonly Button _taskRenameButton = new();
     private readonly Button _taskDeleteButton = new();
+    private readonly Button _settingsBackButton = new();
+    private readonly Label _settingsPageTitle = new();
+    private readonly Label _settingsSamplingLabel = new();
+    private readonly Label _settingsAutosaveLabel = new();
+    private readonly Label _settingsLanguageLabel = new();
+    private readonly NumericUpDown _settingsSamplingInput = new();
+    private readonly NumericUpDown _settingsAutosaveInput = new();
+    private readonly ComboBox _settingsLanguageInput = new();
+    private readonly CheckBox _settingsStartOnLaunchCheckBox = new();
+    private readonly Button _settingsSaveButton = new();
 
     private AppSettings _appSettings;
     private bool _isTracking;
@@ -289,10 +300,13 @@ public sealed class MainForm : Form
 
         BuildTasksPage();
         _tasksPage.Visible = false;
+        BuildSettingsPage();
+        _settingsPage.Visible = false;
 
         var mainHost = new Panel { Dock = DockStyle.Fill };
         mainHost.Controls.Add(_appsPage);
         mainHost.Controls.Add(_tasksPage);
+        mainHost.Controls.Add(_settingsPage);
 
         root.Controls.Add(sidebar, 0, 0);
         root.Controls.Add(mainHost, 1, 0);
@@ -312,8 +326,10 @@ public sealed class MainForm : Form
         _start.Click += (_, _) => StartTracking();
         _stop.Click += (_, _) => StopTracking();
         _launch.Click += (_, _) => LaunchCurrentOrPick();
-        _settings.Click += (_, _) => OpenSettingsDialog();
+        _settings.Click += (_, _) => ShowSettingsPage();
         _tasksView.Click += (_, _) => ShowTasksPage();
+        _settingsBackButton.Click += (_, _) => ShowAppsPage();
+        _settingsSaveButton.Click += (_, _) => SaveSettingsFromPage();
         _taskStartButton.Click += (_, _) => StartSelectedTask();
         _taskStopButton.Click += (_, _) => StopTask();
         _taskAddButton.Click += (_, _) => AddTaskNode(isGroup: false);
@@ -466,6 +482,120 @@ public sealed class MainForm : Form
 
         _tasksPage.Controls.Add(body);
         _tasksPage.Controls.Add(header);
+    }
+
+    private void BuildSettingsPage()
+    {
+        _settingsPage.Dock = DockStyle.Fill;
+        _settingsPage.BackColor = Color.FromArgb(14, 24, 34);
+
+        var header = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 58,
+            BackColor = Color.FromArgb(14, 24, 34),
+            Padding = new Padding(16, 12, 16, 12)
+        };
+
+        _settingsBackButton.Width = 90;
+        _settingsBackButton.Height = 30;
+        _settingsBackButton.BackColor = Color.FromArgb(26, 44, 60);
+        _settingsBackButton.ForeColor = Color.FromArgb(230, 237, 243);
+        _settingsBackButton.FlatStyle = FlatStyle.Flat;
+        _settingsBackButton.FlatAppearance.BorderSize = 0;
+
+        _settingsPageTitle.ForeColor = Color.FromArgb(230, 237, 243);
+        _settingsPageTitle.AutoSize = true;
+        _settingsPageTitle.Left = 110;
+        _settingsPageTitle.Top = 18;
+        _settingsPageTitle.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+
+        header.Controls.Add(_settingsBackButton);
+        header.Controls.Add(_settingsPageTitle);
+
+        var contentWrap = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(20),
+            AutoScroll = true,
+            BackColor = Color.FromArgb(10, 20, 28)
+        };
+
+        var card = new Panel
+        {
+            Width = 760,
+            Height = 330,
+            BackColor = Color.FromArgb(24, 40, 54),
+            Padding = new Padding(18)
+        };
+
+        var grid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 210,
+            ColumnCount = 2,
+            RowCount = 4
+        };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+
+        ConfigureSettingsLabel(_settingsSamplingLabel);
+        ConfigureSettingsLabel(_settingsAutosaveLabel);
+        ConfigureSettingsLabel(_settingsLanguageLabel);
+
+        _settingsSamplingInput.Minimum = 1;
+        _settingsSamplingInput.Maximum = 30;
+        _settingsSamplingInput.Dock = DockStyle.Fill;
+
+        _settingsAutosaveInput.Minimum = 5;
+        _settingsAutosaveInput.Maximum = 300;
+        _settingsAutosaveInput.Dock = DockStyle.Fill;
+
+        _settingsLanguageInput.DropDownStyle = ComboBoxStyle.DropDownList;
+        _settingsLanguageInput.Dock = DockStyle.Fill;
+        _settingsLanguageInput.DisplayMember = nameof(LanguageOption.Label);
+        _settingsLanguageInput.ValueMember = nameof(LanguageOption.Code);
+        _settingsLanguageInput.Items.Add(new LanguageOption("ru", "Русский"));
+        _settingsLanguageInput.Items.Add(new LanguageOption("en", "English"));
+
+        _settingsStartOnLaunchCheckBox.ForeColor = Color.FromArgb(230, 237, 243);
+        _settingsStartOnLaunchCheckBox.AutoSize = true;
+        _settingsStartOnLaunchCheckBox.Dock = DockStyle.Fill;
+
+        grid.Controls.Add(_settingsSamplingLabel, 0, 0);
+        grid.Controls.Add(_settingsSamplingInput, 1, 0);
+        grid.Controls.Add(_settingsAutosaveLabel, 0, 1);
+        grid.Controls.Add(_settingsAutosaveInput, 1, 1);
+        grid.Controls.Add(_settingsLanguageLabel, 0, 2);
+        grid.Controls.Add(_settingsLanguageInput, 1, 2);
+        grid.Controls.Add(_settingsStartOnLaunchCheckBox, 0, 3);
+        grid.SetColumnSpan(_settingsStartOnLaunchCheckBox, 2);
+
+        var actions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 52,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false
+        };
+        _settingsSaveButton.Width = 120;
+        _settingsSaveButton.Height = 34;
+        _settingsSaveButton.BackColor = Color.FromArgb(46, 125, 50);
+        _settingsSaveButton.ForeColor = Color.White;
+        _settingsSaveButton.FlatStyle = FlatStyle.Flat;
+        _settingsSaveButton.FlatAppearance.BorderSize = 0;
+        actions.Controls.Add(_settingsSaveButton);
+
+        card.Controls.Add(actions);
+        card.Controls.Add(grid);
+        contentWrap.Controls.Add(card);
+
+        _settingsPage.Controls.Add(contentWrap);
+        _settingsPage.Controls.Add(header);
     }
 
     private void OnSamplingTick(object? sender, EventArgs e)
@@ -656,6 +786,7 @@ public sealed class MainForm : Form
     private void ShowTasksPage()
     {
         _appsPage.Visible = false;
+        _settingsPage.Visible = false;
         _tasksPage.Visible = true;
         RefreshTasksTree();
     }
@@ -663,7 +794,16 @@ public sealed class MainForm : Form
     private void ShowAppsPage()
     {
         _tasksPage.Visible = false;
+        _settingsPage.Visible = false;
         _appsPage.Visible = true;
+    }
+
+    private void ShowSettingsPage()
+    {
+        LoadSettingsToPage();
+        _appsPage.Visible = false;
+        _tasksPage.Visible = false;
+        _settingsPage.Visible = true;
     }
 
     private void UpdateTaskSummary()
@@ -849,17 +989,39 @@ public sealed class MainForm : Form
         }
     }
 
-    private void OpenSettingsDialog()
+    private void LoadSettingsToPage()
     {
-        using var form = new SettingsForm(_appSettings);
-        if (form.ShowDialog(this) != DialogResult.OK) return;
-        ApplySettings(form.ResultSettings);
+        _settingsSamplingInput.Value = Math.Clamp(_appSettings.SamplingIntervalSeconds, (int)_settingsSamplingInput.Minimum, (int)_settingsSamplingInput.Maximum);
+        _settingsAutosaveInput.Value = Math.Clamp(_appSettings.AutosaveIntervalSeconds, (int)_settingsAutosaveInput.Minimum, (int)_settingsAutosaveInput.Maximum);
+        _settingsStartOnLaunchCheckBox.Checked = _appSettings.StartTrackingOnLaunch;
+        SelectSettingsLanguage(_appSettings.Language);
+    }
+
+    private void SaveSettingsFromPage()
+    {
+        var newSettings = new AppSettings
+        {
+            SamplingIntervalSeconds = (int)_settingsSamplingInput.Value,
+            AutosaveIntervalSeconds = (int)_settingsAutosaveInput.Value,
+            StartTrackingOnLaunch = _settingsStartOnLaunchCheckBox.Checked,
+            Language = (_settingsLanguageInput.SelectedItem as LanguageOption)?.Code ?? "ru"
+        };
+
+        ApplySettings(newSettings);
         _settingsStore.Save(_settingsPath, _appSettings);
+
         if (_isTracking)
         {
             _samplingTimer.Stop();
             _samplingTimer.Start();
         }
+
+        MessageBox.Show(
+            this,
+            T("Настройки сохранены.", "Settings saved."),
+            "Stride Tracker",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
     }
 
     private void ApplySettings(AppSettings settings)
@@ -873,6 +1035,7 @@ public sealed class MainForm : Form
         };
         _samplingTimer.Interval = _appSettings.SamplingIntervalSeconds * 1000;
         ApplyLanguage();
+        LoadSettingsToPage();
         RefreshDetails();
         RefreshTasksTree();
     }
@@ -897,11 +1060,20 @@ public sealed class MainForm : Form
         _taskAddFolderButton.Text = T("+ Папка", "+ Folder");
         _taskRenameButton.Text = T("Переименовать", "Rename");
         _taskDeleteButton.Text = T("Удалить", "Delete");
+        _settingsBackButton.Text = T("← Приложения", "← Apps");
+        _settingsPageTitle.Text = T("Настройки", "Settings");
+        _settingsSamplingLabel.Text = T("Интервал сэмплинга (сек):", "Sampling interval (seconds):");
+        _settingsAutosaveLabel.Text = T("Интервал автосохранения (сек):", "Autosave interval (seconds):");
+        _settingsLanguageLabel.Text = T("Язык интерфейса:", "Interface language:");
+        _settingsStartOnLaunchCheckBox.Text = T("Запускать трекинг автоматически при старте", "Start tracking automatically on launch");
+        _settingsSaveButton.Text = T("Сохранить", "Save");
     }
 
     private string T(string ru, string en) => IsRussian ? ru : en;
 
     private bool IsRussian => !string.Equals(_appSettings.Language, "en", StringComparison.OrdinalIgnoreCase);
+
+    private sealed record LanguageOption(string Code, string Label);
 
     private void UpdateUi()
     {
@@ -1043,6 +1215,32 @@ public sealed class MainForm : Form
         button.ForeColor = Color.FromArgb(230, 237, 243);
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
+    }
+
+    private static void ConfigureSettingsLabel(Label label)
+    {
+        label.AutoSize = true;
+        label.ForeColor = Color.FromArgb(230, 237, 243);
+        label.TextAlign = ContentAlignment.MiddleLeft;
+        label.Dock = DockStyle.Fill;
+    }
+
+    private void SelectSettingsLanguage(string? languageCode)
+    {
+        var normalized = string.Equals(languageCode, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "ru";
+        foreach (var item in _settingsLanguageInput.Items)
+        {
+            if (item is LanguageOption option && string.Equals(option.Code, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                _settingsLanguageInput.SelectedItem = item;
+                return;
+            }
+        }
+
+        if (_settingsLanguageInput.Items.Count > 0)
+        {
+            _settingsLanguageInput.SelectedIndex = 0;
+        }
     }
 
     private string? GetParentIdForCreate()
