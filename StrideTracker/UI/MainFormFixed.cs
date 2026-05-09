@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using StrideTracker.Configuration;
 using StrideTracker.Tracking;
 
@@ -79,6 +80,11 @@ public sealed class MainForm : Form
     private bool _appsListInitialized;
     private bool _isRefreshingApps;
     private string _lastAppsFilter = string.Empty;
+    private const string ExplorerThemeName = "Explorer";
+    private const string DarkExplorerThemeName = "DarkMode_Explorer";
+
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int SetWindowTheme(IntPtr hWnd, string? pszSubAppName, string? pszSubIdList);
 
     public MainForm()
     {
@@ -353,6 +359,7 @@ public sealed class MainForm : Form
             if (_isTracking) StopTracking();
             PersistState();
         };
+        Shown += (_, _) => ApplyScrollbarsThemeRecursive(this);
     }
 
     private void BuildTasksPage()
@@ -1290,6 +1297,8 @@ public sealed class MainForm : Form
         _taskSummaryLabel.ForeColor = mutedText;
         _tasksPageTitle.ForeColor = text;
         _settingsPageTitle.ForeColor = text;
+        ApplyTrackingButtonsState();
+        ApplyScrollbarsThemeRecursive(this);
     }
 
     private static void ApplyControlThemeRecursive(Control root, Color page, Color sidebar, Color surface, Color surfaceAlt, Color text)
@@ -1320,6 +1329,31 @@ public sealed class MainForm : Form
         }
     }
 
+    private void ApplyScrollbarsThemeRecursive(Control root)
+    {
+        ApplyScrollbarTheme(root);
+        foreach (Control child in root.Controls)
+        {
+            ApplyScrollbarsThemeRecursive(child);
+        }
+    }
+
+    private void ApplyScrollbarTheme(Control control)
+    {
+        if (!control.IsHandleCreated || !NeedsScrollbarTheme(control))
+        {
+            return;
+        }
+
+        var themeName = IsLightTheme ? ExplorerThemeName : DarkExplorerThemeName;
+        _ = SetWindowTheme(control.Handle, themeName, null);
+    }
+
+    private static bool NeedsScrollbarTheme(Control control) =>
+        control is ListView
+        || control is TreeView
+        || (control is ScrollableControl scrollable && scrollable.AutoScroll);
+
     private string T(string ru, string en) => IsRussian ? ru : en;
 
     private bool IsRussian => !string.Equals(_appSettings.Language, "en", StringComparison.OrdinalIgnoreCase);
@@ -1330,9 +1364,52 @@ public sealed class MainForm : Form
 
     private void UpdateUi()
     {
-        _start.Enabled = !_isTracking;
-        _stop.Enabled = _isTracking;
+        _start.Enabled = true;
+        _stop.Enabled = true;
         _launch.Enabled = _appsList.Items.Count > 0;
+        ApplyTrackingButtonsState();
+    }
+
+    private void ApplyTrackingButtonsState()
+    {
+        var activeFore = Color.White;
+        var startActiveBack = Color.FromArgb(46, 125, 50);
+        var stopActiveBack = Color.FromArgb(183, 28, 28);
+        var activeBorder = Color.FromArgb(0, 0, 0);
+
+        var inactiveBack = IsLightTheme ? Color.FromArgb(235, 243, 250) : Color.FromArgb(26, 44, 60);
+        var inactiveFore = IsLightTheme ? Color.FromArgb(104, 128, 146) : Color.FromArgb(155, 178, 199);
+        var inactiveBorder = IsLightTheme ? Color.FromArgb(192, 213, 230) : Color.FromArgb(44, 66, 84);
+
+        ApplyTrackingButtonState(_start, !_isTracking, startActiveBack, activeFore, activeBorder, inactiveBack, inactiveFore, inactiveBorder);
+        ApplyTrackingButtonState(_stop, _isTracking, stopActiveBack, activeFore, activeBorder, inactiveBack, inactiveFore, inactiveBorder);
+    }
+
+    private static void ApplyTrackingButtonState(
+        Button button,
+        bool isActive,
+        Color activeBack,
+        Color activeFore,
+        Color activeBorder,
+        Color inactiveBack,
+        Color inactiveFore,
+        Color inactiveBorder)
+    {
+        if (isActive)
+        {
+            button.BackColor = activeBack;
+            button.ForeColor = activeFore;
+            button.FlatAppearance.BorderColor = activeBorder;
+            button.FlatAppearance.MouseOverBackColor = activeBack;
+            button.FlatAppearance.MouseDownBackColor = activeBack;
+            return;
+        }
+
+        button.BackColor = inactiveBack;
+        button.ForeColor = inactiveFore;
+        button.FlatAppearance.BorderColor = inactiveBorder;
+        button.FlatAppearance.MouseOverBackColor = inactiveBack;
+        button.FlatAppearance.MouseDownBackColor = inactiveBack;
     }
 
     private string GetIconKey(string appName) => _iconKeys.TryGetValue(appName, out var key) ? key : "default";
