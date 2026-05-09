@@ -739,6 +739,8 @@ public sealed class MainForm : Form
 
         if (!ShouldTrackApp(sample.ProcessName))
         {
+            // Remember discovered apps even when they are not selected for tracking yet.
+            _tracker.MarkLaunched(sample.ProcessName, sample.CapturedAtUtc, sample.ExecutablePath);
             _tracker.Flush(sample.CapturedAtUtc);
             RefreshApps();
             return;
@@ -1931,26 +1933,68 @@ public sealed class MainForm : Form
 
     private void EnsureInstalledAppsLoaded()
     {
-        if (_isLoadingInstalledApps || _installedAppCandidates.Count > 0)
+        if (_isLoadingInstalledApps)
         {
             return;
         }
 
-        _isLoadingInstalledApps = true;
-        try
+        if (_installedAppCandidates.Count == 0)
         {
-            _installedAppCandidates = LoadInstalledAppCandidates();
+            _isLoadingInstalledApps = true;
+            try
+            {
+                _installedAppCandidates = LoadInstalledAppCandidates();
+            }
+            finally
+            {
+                _isLoadingInstalledApps = false;
+            }
         }
-        finally
-        {
-            _isLoadingInstalledApps = false;
-        }
+
+        MergeKnownAppsIntoInstalledCandidates();
 
         if (_installedAppCandidates.Count == 0)
         {
             _settingsInstalledAppsInput.Items.Clear();
             return;
         }
+    }
+
+    private void MergeKnownAppsIntoInstalledCandidates()
+    {
+        var knownNames = new HashSet<string>(_appSettings.SelectedTrackedApps ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+        knownNames.UnionWith(_tracker.KnownAppNames);
+
+        foreach (var processName in knownNames)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+            {
+                continue;
+            }
+
+            var knownPath = _tracker.GetKnownExecutablePath(processName);
+            var existingIndex = _installedAppCandidates.FindIndex(x => string.Equals(x.ProcessName, processName, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex < 0)
+            {
+                _installedAppCandidates.Add(new InstalledAppCandidate(processName, processName, knownPath));
+                continue;
+            }
+
+            var existing = _installedAppCandidates[existingIndex];
+            if (string.IsNullOrWhiteSpace(existing.ExecutablePath) && !string.IsNullOrWhiteSpace(knownPath))
+            {
+                _installedAppCandidates[existingIndex] = existing with { ExecutablePath = knownPath };
+            }
+        }
+
+        _installedAppCandidates = _installedAppCandidates
+            .GroupBy(x => x.ProcessName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g
+                .OrderBy(x => string.IsNullOrWhiteSpace(x.ExecutablePath) ? 1 : 0)
+                .ThenBy(x => x.DisplayName.Length)
+                .First())
+            .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void RefreshInstalledAppsList()

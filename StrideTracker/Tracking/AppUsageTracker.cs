@@ -19,6 +19,12 @@ public sealed class AppUsageTracker
     private ActiveWindowInfo? _lastSample;
 
     public IReadOnlyDictionary<string, TimeSpan> DurationsByApp => _durationsByApp;
+    public IReadOnlyCollection<string> KnownAppNames =>
+        _durationsByApp.Keys
+            .Concat(_executablePathByApp.Keys)
+            .Concat(_lastLaunchUtcByApp.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     public void AddSample(ActiveWindowInfo sample)
     {
