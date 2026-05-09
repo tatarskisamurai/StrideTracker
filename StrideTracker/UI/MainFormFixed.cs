@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using Microsoft.Win32;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using StrideTracker.Configuration;
@@ -74,7 +75,9 @@ public sealed class MainForm : Form
     private readonly ComboBox _settingsLanguageInput = new();
     private readonly ComboBox _settingsThemeInput = new();
     private readonly ComboBox _settingsTrackingModeInput = new();
-    private readonly CheckedListBox _settingsTrackedAppsInput = new();
+    private readonly UsageListView _settingsTrackedAppsInput = new();
+    private readonly Button _settingsAddTrackedAppButton = new();
+    private readonly Button _settingsPickInstalledAppButton = new();
     private readonly CheckBox _settingsStartOnLaunchCheckBox = new();
     private readonly Button _settingsSaveButton = new();
 
@@ -621,7 +624,13 @@ public sealed class MainForm : Form
         _settingsTrackingModeInput.ValueMember = nameof(TrackingModeOption.Code);
 
         _settingsTrackedAppsInput.Dock = DockStyle.Fill;
-        _settingsTrackedAppsInput.CheckOnClick = true;
+        _settingsTrackedAppsInput.View = View.Details;
+        _settingsTrackedAppsInput.HeaderStyle = ColumnHeaderStyle.None;
+        _settingsTrackedAppsInput.CheckBoxes = true;
+        _settingsTrackedAppsInput.FullRowSelect = true;
+        _settingsTrackedAppsInput.MultiSelect = false;
+        _settingsTrackedAppsInput.SmallImageList = _icons;
+        _settingsTrackedAppsInput.Columns.Add("Application", 240);
         _settingsTrackedAppsInput.Height = 150;
 
         _settingsStartOnLaunchCheckBox.ForeColor = Color.FromArgb(230, 237, 243);
@@ -636,6 +645,13 @@ public sealed class MainForm : Form
             }
 
             UpdateTrackedAppsSelectorState();
+        };
+        _settingsTrackedAppsInput.SizeChanged += (_, _) =>
+        {
+            if (_settingsTrackedAppsInput.Columns.Count > 0)
+            {
+                _settingsTrackedAppsInput.Columns[0].Width = Math.Max(120, _settingsTrackedAppsInput.ClientSize.Width - 6);
+            }
         };
 
         grid.Controls.Add(_settingsSamplingLabel, 0, 0);
@@ -653,16 +669,33 @@ public sealed class MainForm : Form
 
         var trackedAppsPanel = new Panel
         {
-            Dock = DockStyle.Top,
-            Height = 160,
+            Dock = DockStyle.Fill,
             Padding = new Padding(0, 8, 0, 0)
         };
+        var trackedAppsActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 68,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Margin = new Padding(0, 4, 0, 4)
+        };
+        _settingsAddTrackedAppButton.Width = 200;
+        _settingsAddTrackedAppButton.Height = 28;
+        _settingsAddTrackedAppButton.FlatStyle = FlatStyle.Flat;
+        _settingsAddTrackedAppButton.FlatAppearance.BorderSize = 1;
+        _settingsAddTrackedAppButton.Click += (_, _) => AddTrackedAppFromFilePicker();
+        _settingsPickInstalledAppButton.Width = 230;
+        _settingsPickInstalledAppButton.Height = 28;
+        _settingsPickInstalledAppButton.FlatStyle = FlatStyle.Flat;
+        _settingsPickInstalledAppButton.FlatAppearance.BorderSize = 1;
+        _settingsPickInstalledAppButton.Click += (_, _) => AddTrackedAppFromInstalledList();
+        trackedAppsActions.Controls.Add(_settingsAddTrackedAppButton);
+        trackedAppsActions.Controls.Add(_settingsPickInstalledAppButton);
         _settingsTrackedAppsLabel.Dock = DockStyle.Top;
         _settingsTrackedAppsLabel.Height = 24;
-        _settingsTrackedAppsInput.Top = 26;
-        _settingsTrackedAppsInput.Width = card.Width - 36;
-        _settingsTrackedAppsInput.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         trackedAppsPanel.Controls.Add(_settingsTrackedAppsInput);
+        trackedAppsPanel.Controls.Add(trackedAppsActions);
         trackedAppsPanel.Controls.Add(_settingsTrackedAppsLabel);
 
         var actions = new FlowLayoutPanel
@@ -1205,9 +1238,7 @@ public sealed class MainForm : Form
             Language = (_settingsLanguageInput.SelectedItem as LanguageOption)?.Code ?? "ru",
             Theme = (_settingsThemeInput.SelectedItem as ThemeOption)?.Code ?? "dark",
             TrackingMode = (_settingsTrackingModeInput.SelectedItem as TrackingModeOption)?.Code ?? "all",
-            SelectedTrackedApps = _settingsTrackedAppsInput.CheckedItems
-                .Cast<string>()
-                .Where(static name => !string.IsNullOrWhiteSpace(name))
+            SelectedTrackedApps = GetCheckedTrackedAppNames()
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
@@ -1282,6 +1313,8 @@ public sealed class MainForm : Form
         _settingsThemeLabel.Text = T("Тема:", "Theme:");
         _settingsTrackingModeLabel.Text = T("Режим трекинга приложений:", "App tracking mode:");
         _settingsTrackedAppsLabel.Text = T("Приложения для трекинга:", "Apps to track:");
+        _settingsAddTrackedAppButton.Text = T("+ Добавить приложение (имя/путь)...", "+ Add application (name/path)...");
+        _settingsPickInstalledAppButton.Text = T("+ Выбрать из установленных...", "+ Pick from installed...");
         _settingsStartOnLaunchCheckBox.Text = T("Запускать трекинг автоматически при старте", "Start tracking automatically on launch");
         _settingsSaveButton.Text = T("Сохранить", "Save");
         PopulateThemeOptions();
@@ -1348,6 +1381,12 @@ public sealed class MainForm : Form
         _settingsTrackingModeInput.ForeColor = text;
         _settingsTrackedAppsInput.BackColor = input;
         _settingsTrackedAppsInput.ForeColor = text;
+        _settingsAddTrackedAppButton.BackColor = IsLightTheme ? Color.White : Color.FromArgb(26, 44, 60);
+        _settingsAddTrackedAppButton.ForeColor = text;
+        _settingsAddTrackedAppButton.FlatAppearance.BorderColor = border;
+        _settingsPickInstalledAppButton.BackColor = IsLightTheme ? Color.White : Color.FromArgb(26, 44, 60);
+        _settingsPickInstalledAppButton.ForeColor = text;
+        _settingsPickInstalledAppButton.FlatAppearance.BorderColor = border;
 
         ApplyControlThemeRecursive(this, page, sidebar, surface, surfaceAlt, text);
 
@@ -1857,13 +1896,7 @@ public sealed class MainForm : Form
         try
         {
             var selected = new HashSet<string>(_appSettings.SelectedTrackedApps ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-            foreach (var item in _settingsTrackedAppsInput.CheckedItems)
-            {
-                if (item is string appName && !string.IsNullOrWhiteSpace(appName))
-                {
-                    selected.Add(appName);
-                }
-            }
+            selected.UnionWith(GetCheckedTrackedAppNames());
 
             var items = _tracker.DurationsByApp.Keys
                 .Concat(selected)
@@ -1872,12 +1905,24 @@ public sealed class MainForm : Form
                 .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
+            _settingsTrackedAppsInput.BeginUpdate();
             _settingsTrackedAppsInput.Items.Clear();
             foreach (var appName in items)
             {
                 var isChecked = selected.Contains(appName);
-                _settingsTrackedAppsInput.Items.Add(appName, isChecked);
+                var listItem = new ListViewItem(appName)
+                {
+                    Tag = appName,
+                    Checked = isChecked,
+                    ImageKey = GetIconKey(appName)
+                };
+                _settingsTrackedAppsInput.Items.Add(listItem);
             }
+            if (_settingsTrackedAppsInput.Columns.Count > 0)
+            {
+                _settingsTrackedAppsInput.Columns[0].Width = Math.Max(120, _settingsTrackedAppsInput.ClientSize.Width - 6);
+            }
+            _settingsTrackedAppsInput.EndUpdate();
         }
         finally
         {
@@ -1890,7 +1935,350 @@ public sealed class MainForm : Form
         var selectedMode = string.Equals((_settingsTrackingModeInput.SelectedItem as TrackingModeOption)?.Code, "selected", StringComparison.OrdinalIgnoreCase);
         _settingsTrackedAppsInput.Enabled = selectedMode;
         _settingsTrackedAppsLabel.Enabled = selectedMode;
+        _settingsAddTrackedAppButton.Enabled = selectedMode;
+        _settingsPickInstalledAppButton.Enabled = selectedMode;
     }
+
+    private IEnumerable<string> GetCheckedTrackedAppNames()
+    {
+        foreach (ListViewItem item in _settingsTrackedAppsInput.Items)
+        {
+            if (!item.Checked)
+            {
+                continue;
+            }
+
+            var appName = item.Tag as string ?? item.Text;
+            if (!string.IsNullOrWhiteSpace(appName))
+            {
+                yield return appName;
+            }
+        }
+    }
+
+    private void AddTrackedAppFromFilePicker()
+    {
+        if (!string.Equals((_settingsTrackingModeInput.SelectedItem as TrackingModeOption)?.Code, "selected", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!TryPromptTaskName(
+                T("Добавить приложение", "Add application"),
+                string.Empty,
+                out var input))
+        {
+            return;
+        }
+
+        var appName = NormalizeTrackedAppName(input);
+        if (string.IsNullOrWhiteSpace(appName))
+        {
+            MessageBox.Show(
+                this,
+                T("Введите имя приложения или путь к .exe файлу.", "Enter app name or path to an .exe file."),
+                "Stride Tracker",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        AddOrCheckTrackedApp(appName);
+    }
+
+    private static string NormalizeTrackedAppName(string value)
+    {
+        var input = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return string.Empty;
+        }
+
+        var looksLikePath = input.Contains(Path.DirectorySeparatorChar)
+            || input.Contains(Path.AltDirectorySeparatorChar)
+            || input.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+
+        if (looksLikePath)
+        {
+            return Path.GetFileNameWithoutExtension(input).Trim();
+        }
+
+        return input;
+    }
+
+    private void AddOrCheckTrackedApp(string appName)
+    {
+        var existing = _settingsTrackedAppsInput.Items
+            .Cast<ListViewItem>()
+            .FirstOrDefault(i => string.Equals(i.Tag as string ?? i.Text, appName, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is null)
+        {
+            var item = new ListViewItem(appName)
+            {
+                Tag = appName,
+                ImageKey = "default",
+                Checked = true
+            };
+            _settingsTrackedAppsInput.Items.Add(item);
+            if (_settingsTrackedAppsInput.Columns.Count > 0)
+            {
+                _settingsTrackedAppsInput.Columns[0].Width = Math.Max(120, _settingsTrackedAppsInput.ClientSize.Width - 6);
+            }
+        }
+        else
+        {
+            existing.ImageKey = string.IsNullOrWhiteSpace(existing.ImageKey) ? "default" : existing.ImageKey;
+            existing.Checked = true;
+            existing.EnsureVisible();
+        }
+    }
+
+    private void AddTrackedAppFromInstalledList()
+    {
+        if (!string.Equals((_settingsTrackingModeInput.SelectedItem as TrackingModeOption)?.Code, "selected", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var candidates = LoadInstalledAppCandidates();
+        if (candidates.Count == 0)
+        {
+            MessageBox.Show(
+                this,
+                T("Не удалось получить список установленных приложений.", "Could not load installed applications list."),
+                "Stride Tracker",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        using var picker = new Form
+        {
+            Text = T("Выбор установленного приложения", "Select installed application"),
+            Width = 760,
+            Height = 540,
+            FormBorderStyle = FormBorderStyle.Sizable,
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = true,
+            ShowInTaskbar = false
+        };
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+
+        var search = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(12, 10, 12, 6),
+            PlaceholderText = T("Поиск по имени приложения или процессу...", "Search by app name or process...")
+        };
+
+        var list = new ListView
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(12, 0, 12, 0),
+            View = View.Details,
+            FullRowSelect = true,
+            MultiSelect = false,
+            HeaderStyle = ColumnHeaderStyle.Nonclickable
+        };
+        list.Columns.Add(T("Приложение", "Application"), 360);
+        list.Columns.Add(T("Процесс", "Process"), 200);
+        list.Columns.Add(T("Путь", "Path"), 320);
+
+        var actions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            Padding = new Padding(12, 8, 12, 8)
+        };
+        var ok = new Button
+        {
+            Text = T("Добавить", "Add"),
+            Width = 110,
+            DialogResult = DialogResult.OK
+        };
+        var cancel = new Button
+        {
+            Text = T("Отмена", "Cancel"),
+            Width = 110,
+            DialogResult = DialogResult.Cancel
+        };
+        actions.Controls.Add(ok);
+        actions.Controls.Add(cancel);
+
+        void Rebind(string query)
+        {
+            var q = query.Trim();
+            var filtered = candidates
+                .Where(c => string.IsNullOrWhiteSpace(q)
+                    || c.DisplayName.Contains(q, StringComparison.OrdinalIgnoreCase)
+                    || c.ProcessName.Contains(q, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            list.BeginUpdate();
+            list.Items.Clear();
+            foreach (var candidate in filtered)
+            {
+                var item = new ListViewItem(candidate.DisplayName) { Tag = candidate };
+                item.SubItems.Add(candidate.ProcessName);
+                item.SubItems.Add(candidate.ExecutablePath ?? string.Empty);
+                list.Items.Add(item);
+            }
+            list.EndUpdate();
+
+            if (list.Items.Count > 0)
+            {
+                list.Items[0].Selected = true;
+            }
+        }
+
+        search.TextChanged += (_, _) => Rebind(search.Text);
+        list.DoubleClick += (_, _) =>
+        {
+            if (list.SelectedItems.Count > 0)
+            {
+                picker.DialogResult = DialogResult.OK;
+                picker.Close();
+            }
+        };
+
+        root.Controls.Add(search, 0, 0);
+        root.Controls.Add(list, 0, 1);
+        root.Controls.Add(actions, 0, 2);
+        picker.Controls.Add(root);
+        picker.AcceptButton = ok;
+        picker.CancelButton = cancel;
+
+        Rebind(string.Empty);
+        if (picker.ShowDialog(this) != DialogResult.OK || list.SelectedItems.Count == 0)
+        {
+            return;
+        }
+
+        if (list.SelectedItems[0].Tag is InstalledAppCandidate selected)
+        {
+            AddOrCheckTrackedApp(selected.ProcessName);
+        }
+    }
+
+    private static List<InstalledAppCandidate> LoadInstalledAppCandidates()
+    {
+        var cursor = Cursor.Current;
+        Cursor.Current = Cursors.WaitCursor;
+        try
+        {
+            var raw = ReadUninstallApps(RegistryHive.LocalMachine, RegistryView.Registry64)
+                .Concat(ReadUninstallApps(RegistryHive.LocalMachine, RegistryView.Registry32))
+                .Concat(ReadUninstallApps(RegistryHive.CurrentUser, RegistryView.Registry64))
+                .Concat(ReadUninstallApps(RegistryHive.CurrentUser, RegistryView.Registry32))
+                .ToArray();
+
+            return raw
+                .GroupBy(x => x.ProcessName, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g
+                    .OrderBy(x => x.DisplayName.Length)
+                    .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .First())
+                .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        finally
+        {
+            Cursor.Current = cursor;
+        }
+    }
+
+    private static List<InstalledAppCandidate> ReadUninstallApps(RegistryHive hive, RegistryView view)
+    {
+        const string uninstallPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+        var result = new List<InstalledAppCandidate>();
+        RegistryKey? baseKey = null;
+        RegistryKey? uninstallRoot = null;
+        try
+        {
+            baseKey = RegistryKey.OpenBaseKey(hive, view);
+            uninstallRoot = baseKey.OpenSubKey(uninstallPath);
+            if (uninstallRoot is null)
+            {
+                return result;
+            }
+
+            foreach (var subKeyName in uninstallRoot.GetSubKeyNames())
+            {
+                using var subKey = uninstallRoot.OpenSubKey(subKeyName);
+                if (subKey is null)
+                {
+                    continue;
+                }
+
+                var displayName = (subKey.GetValue("DisplayName") as string)?.Trim();
+                if (string.IsNullOrWhiteSpace(displayName))
+                {
+                    continue;
+                }
+
+                var processName = TryGetProcessNameFromPath(subKey.GetValue("DisplayIcon") as string)
+                    ?? TryGetProcessNameFromPath(subKey.GetValue("InstallLocation") as string)
+                    ?? TryGetProcessNameFromPath(subKey.GetValue("UninstallString") as string);
+
+                if (string.IsNullOrWhiteSpace(processName))
+                {
+                    continue;
+                }
+
+                result.Add(new InstalledAppCandidate(displayName, processName, subKey.GetValue("DisplayIcon") as string));
+            }
+        }
+        catch
+        {
+            return result;
+        }
+        finally
+        {
+            uninstallRoot?.Dispose();
+            baseKey?.Dispose();
+        }
+
+        return result;
+    }
+
+    private static string? TryGetProcessNameFromPath(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var value = Environment.ExpandEnvironmentVariables(raw.Trim().Trim('"'));
+        var exeIndex = value.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+        if (exeIndex < 0)
+        {
+            return null;
+        }
+
+        var pathEnd = exeIndex + 4;
+        var candidatePath = value[..pathEnd].Trim().Trim('"');
+        if (candidatePath.Contains(','))
+        {
+            candidatePath = candidatePath[..candidatePath.IndexOf(',')].Trim().Trim('"');
+        }
+
+        var fileName = Path.GetFileNameWithoutExtension(candidatePath);
+        return string.IsNullOrWhiteSpace(fileName) ? null : fileName;
+    }
+
+    private sealed record InstalledAppCandidate(string DisplayName, string ProcessName, string? ExecutablePath);
 
     private bool ShouldTrackApp(string appName)
     {
