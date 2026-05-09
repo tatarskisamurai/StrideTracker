@@ -67,10 +67,14 @@ public sealed class MainForm : Form
     private readonly Label _settingsAutosaveLabel = new();
     private readonly Label _settingsLanguageLabel = new();
     private readonly Label _settingsThemeLabel = new();
+    private readonly Label _settingsTrackingModeLabel = new();
+    private readonly Label _settingsTrackedAppsLabel = new();
     private readonly NumericUpDown _settingsSamplingInput = new();
     private readonly NumericUpDown _settingsAutosaveInput = new();
     private readonly ComboBox _settingsLanguageInput = new();
     private readonly ComboBox _settingsThemeInput = new();
+    private readonly ComboBox _settingsTrackingModeInput = new();
+    private readonly CheckedListBox _settingsTrackedAppsInput = new();
     private readonly CheckBox _settingsStartOnLaunchCheckBox = new();
     private readonly Button _settingsSaveButton = new();
 
@@ -81,6 +85,7 @@ public sealed class MainForm : Form
     private bool _tasksTreeInitialized;
     private bool _appsListInitialized;
     private bool _isRefreshingApps;
+    private bool _isUpdatingTrackedAppsSelection;
     private string _lastAppsFilter = string.Empty;
     private (string Label, TimeSpan Duration)[] _dailyChartRows = Array.Empty<(string Label, TimeSpan Duration)>();
     private const string ExplorerThemeName = "Explorer";
@@ -560,7 +565,7 @@ public sealed class MainForm : Form
         var card = new Panel
         {
             Width = 760,
-            Height = 330,
+            Height = 520,
             BackColor = Color.FromArgb(24, 40, 54),
             Padding = new Padding(18)
         };
@@ -568,12 +573,13 @@ public sealed class MainForm : Form
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 250,
+            Height = 288,
             ColumnCount = 2,
-            RowCount = 5
+            RowCount = 6
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
@@ -584,6 +590,8 @@ public sealed class MainForm : Form
         ConfigureSettingsLabel(_settingsAutosaveLabel);
         ConfigureSettingsLabel(_settingsLanguageLabel);
         ConfigureSettingsLabel(_settingsThemeLabel);
+        ConfigureSettingsLabel(_settingsTrackingModeLabel);
+        ConfigureSettingsLabel(_settingsTrackedAppsLabel);
 
         _settingsSamplingInput.Minimum = 1;
         _settingsSamplingInput.Maximum = 30;
@@ -607,9 +615,28 @@ public sealed class MainForm : Form
         _settingsThemeInput.Items.Add(new ThemeOption("dark", T("Темная", "Dark")));
         _settingsThemeInput.Items.Add(new ThemeOption("light", T("Светло-голубая", "Light Blue")));
 
+        _settingsTrackingModeInput.DropDownStyle = ComboBoxStyle.DropDownList;
+        _settingsTrackingModeInput.Dock = DockStyle.Fill;
+        _settingsTrackingModeInput.DisplayMember = nameof(TrackingModeOption.Label);
+        _settingsTrackingModeInput.ValueMember = nameof(TrackingModeOption.Code);
+
+        _settingsTrackedAppsInput.Dock = DockStyle.Fill;
+        _settingsTrackedAppsInput.CheckOnClick = true;
+        _settingsTrackedAppsInput.Height = 150;
+
         _settingsStartOnLaunchCheckBox.ForeColor = Color.FromArgb(230, 237, 243);
         _settingsStartOnLaunchCheckBox.AutoSize = true;
         _settingsStartOnLaunchCheckBox.Dock = DockStyle.Fill;
+
+        _settingsTrackingModeInput.SelectedIndexChanged += (_, _) =>
+        {
+            if (_isUpdatingTrackedAppsSelection)
+            {
+                return;
+            }
+
+            UpdateTrackedAppsSelectorState();
+        };
 
         grid.Controls.Add(_settingsSamplingLabel, 0, 0);
         grid.Controls.Add(_settingsSamplingInput, 1, 0);
@@ -619,8 +646,24 @@ public sealed class MainForm : Form
         grid.Controls.Add(_settingsLanguageInput, 1, 2);
         grid.Controls.Add(_settingsThemeLabel, 0, 3);
         grid.Controls.Add(_settingsThemeInput, 1, 3);
-        grid.Controls.Add(_settingsStartOnLaunchCheckBox, 0, 4);
+        grid.Controls.Add(_settingsTrackingModeLabel, 0, 4);
+        grid.Controls.Add(_settingsTrackingModeInput, 1, 4);
+        grid.Controls.Add(_settingsStartOnLaunchCheckBox, 0, 5);
         grid.SetColumnSpan(_settingsStartOnLaunchCheckBox, 2);
+
+        var trackedAppsPanel = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 160,
+            Padding = new Padding(0, 8, 0, 0)
+        };
+        _settingsTrackedAppsLabel.Dock = DockStyle.Top;
+        _settingsTrackedAppsLabel.Height = 24;
+        _settingsTrackedAppsInput.Top = 26;
+        _settingsTrackedAppsInput.Width = card.Width - 36;
+        _settingsTrackedAppsInput.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        trackedAppsPanel.Controls.Add(_settingsTrackedAppsInput);
+        trackedAppsPanel.Controls.Add(_settingsTrackedAppsLabel);
 
         var actions = new FlowLayoutPanel
         {
@@ -638,6 +681,7 @@ public sealed class MainForm : Form
         actions.Controls.Add(_settingsSaveButton);
 
         card.Controls.Add(actions);
+        card.Controls.Add(trackedAppsPanel);
         card.Controls.Add(grid);
         contentWrap.Controls.Add(card);
 
@@ -653,6 +697,13 @@ public sealed class MainForm : Form
         var sample = AppUsageTracker.TryGetActiveWindowInfo();
         if (sample is null) return;
         if (sample.ProcessId == _selfProcessId)
+        {
+            _tracker.Flush(sample.CapturedAtUtc);
+            RefreshApps();
+            return;
+        }
+
+        if (!ShouldTrackApp(sample.ProcessName))
         {
             _tracker.Flush(sample.CapturedAtUtc);
             RefreshApps();
@@ -695,6 +746,7 @@ public sealed class MainForm : Form
         var selected = _selectedApp;
         var q = _search.Text.Trim();
         var data = _tracker.DurationsByApp
+            .Where(x => ShouldTrackApp(x.Key))
             .OrderByDescending(x => x.Value)
             .Where(x => string.IsNullOrWhiteSpace(q) || x.Key.Contains(q, StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -764,6 +816,7 @@ public sealed class MainForm : Form
 
         _appsList.EndUpdate();
         _isRefreshingApps = false;
+        _selectedApp = _appsList.SelectedItems.Count > 0 ? _appsList.SelectedItems[0].Tag as string : null;
         _lastAppsFilter = q;
 
         if (_appsPage.Visible || force)
@@ -1136,6 +1189,10 @@ public sealed class MainForm : Form
         _settingsStartOnLaunchCheckBox.Checked = _appSettings.StartTrackingOnLaunch;
         SelectSettingsLanguage(_appSettings.Language);
         SelectSettingsTheme(_appSettings.Theme);
+        PopulateTrackingModeOptions();
+        SelectTrackingMode(_appSettings.TrackingMode);
+        PopulateTrackedAppsChoices();
+        UpdateTrackedAppsSelectorState();
     }
 
     private void SaveSettingsFromPage()
@@ -1146,7 +1203,13 @@ public sealed class MainForm : Form
             AutosaveIntervalSeconds = (int)_settingsAutosaveInput.Value,
             StartTrackingOnLaunch = _settingsStartOnLaunchCheckBox.Checked,
             Language = (_settingsLanguageInput.SelectedItem as LanguageOption)?.Code ?? "ru",
-            Theme = (_settingsThemeInput.SelectedItem as ThemeOption)?.Code ?? "dark"
+            Theme = (_settingsThemeInput.SelectedItem as ThemeOption)?.Code ?? "dark",
+            TrackingMode = (_settingsTrackingModeInput.SelectedItem as TrackingModeOption)?.Code ?? "all",
+            SelectedTrackedApps = _settingsTrackedAppsInput.CheckedItems
+                .Cast<string>()
+                .Where(static name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
         };
 
         ApplySettings(newSettings);
@@ -1158,6 +1221,8 @@ public sealed class MainForm : Form
             _samplingTimer.Start();
         }
 
+        RefreshApps(force: true);
+        RefreshDetails();
         MessageBox.Show(
             this,
             T("Настройки сохранены.", "Settings saved."),
@@ -1174,7 +1239,12 @@ public sealed class MainForm : Form
             AutosaveIntervalSeconds = Math.Clamp(settings.AutosaveIntervalSeconds, 5, 300),
             StartTrackingOnLaunch = settings.StartTrackingOnLaunch,
             Language = string.Equals(settings.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "ru",
-            Theme = string.Equals(settings.Theme, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark"
+            Theme = string.Equals(settings.Theme, "light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark",
+            TrackingMode = string.Equals(settings.TrackingMode, "selected", StringComparison.OrdinalIgnoreCase) ? "selected" : "all",
+            SelectedTrackedApps = (settings.SelectedTrackedApps ?? new List<string>())
+                .Where(static name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
         };
         _samplingTimer.Interval = _appSettings.SamplingIntervalSeconds * 1000;
         ApplyTheme();
@@ -1210,10 +1280,14 @@ public sealed class MainForm : Form
         _settingsAutosaveLabel.Text = T("Интервал автосохранения (сек):", "Autosave interval (seconds):");
         _settingsLanguageLabel.Text = T("Язык интерфейса:", "Interface language:");
         _settingsThemeLabel.Text = T("Тема:", "Theme:");
+        _settingsTrackingModeLabel.Text = T("Режим трекинга приложений:", "App tracking mode:");
+        _settingsTrackedAppsLabel.Text = T("Приложения для трекинга:", "Apps to track:");
         _settingsStartOnLaunchCheckBox.Text = T("Запускать трекинг автоматически при старте", "Start tracking automatically on launch");
         _settingsSaveButton.Text = T("Сохранить", "Save");
         PopulateThemeOptions();
         SelectSettingsTheme(_appSettings.Theme);
+        PopulateTrackingModeOptions();
+        SelectTrackingMode(_appSettings.TrackingMode);
     }
 
     private void ApplyTheme()
@@ -1259,6 +1333,8 @@ public sealed class MainForm : Form
         _settingsAutosaveLabel.ForeColor = text;
         _settingsLanguageLabel.ForeColor = text;
         _settingsThemeLabel.ForeColor = text;
+        _settingsTrackingModeLabel.ForeColor = text;
+        _settingsTrackedAppsLabel.ForeColor = text;
         _settingsStartOnLaunchCheckBox.ForeColor = text;
         _settingsSamplingInput.BackColor = input;
         _settingsSamplingInput.ForeColor = text;
@@ -1268,6 +1344,10 @@ public sealed class MainForm : Form
         _settingsLanguageInput.ForeColor = text;
         _settingsThemeInput.BackColor = input;
         _settingsThemeInput.ForeColor = text;
+        _settingsTrackingModeInput.BackColor = input;
+        _settingsTrackingModeInput.ForeColor = text;
+        _settingsTrackedAppsInput.BackColor = input;
+        _settingsTrackedAppsInput.ForeColor = text;
 
         ApplyControlThemeRecursive(this, page, sidebar, surface, surfaceAlt, text);
 
@@ -1362,9 +1442,11 @@ public sealed class MainForm : Form
 
     private bool IsRussian => !string.Equals(_appSettings.Language, "en", StringComparison.OrdinalIgnoreCase);
     private bool IsLightTheme => string.Equals(_appSettings.Theme, "light", StringComparison.OrdinalIgnoreCase);
+    private bool IsTrackAllMode => !string.Equals(_appSettings.TrackingMode, "selected", StringComparison.OrdinalIgnoreCase);
 
     private sealed record LanguageOption(string Code, string Label);
     private sealed record ThemeOption(string Code, string Label);
+    private sealed record TrackingModeOption(string Code, string Label);
 
     private void UpdateUi()
     {
@@ -1740,6 +1822,89 @@ public sealed class MainForm : Form
         {
             _settingsThemeInput.SelectedIndex = 0;
         }
+    }
+
+    private void PopulateTrackingModeOptions()
+    {
+        var current = (_settingsTrackingModeInput.SelectedItem as TrackingModeOption)?.Code ?? _appSettings.TrackingMode;
+        _settingsTrackingModeInput.Items.Clear();
+        _settingsTrackingModeInput.Items.Add(new TrackingModeOption("all", T("Все приложения", "All applications")));
+        _settingsTrackingModeInput.Items.Add(new TrackingModeOption("selected", T("Только выбранные", "Selected only")));
+        SelectTrackingMode(current);
+    }
+
+    private void SelectTrackingMode(string? modeCode)
+    {
+        var normalized = string.Equals(modeCode, "selected", StringComparison.OrdinalIgnoreCase) ? "selected" : "all";
+        foreach (var item in _settingsTrackingModeInput.Items)
+        {
+            if (item is TrackingModeOption option && string.Equals(option.Code, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                _settingsTrackingModeInput.SelectedItem = item;
+                return;
+            }
+        }
+
+        if (_settingsTrackingModeInput.Items.Count > 0)
+        {
+            _settingsTrackingModeInput.SelectedIndex = 0;
+        }
+    }
+
+    private void PopulateTrackedAppsChoices()
+    {
+        _isUpdatingTrackedAppsSelection = true;
+        try
+        {
+            var selected = new HashSet<string>(_appSettings.SelectedTrackedApps ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+            foreach (var item in _settingsTrackedAppsInput.CheckedItems)
+            {
+                if (item is string appName && !string.IsNullOrWhiteSpace(appName))
+                {
+                    selected.Add(appName);
+                }
+            }
+
+            var items = _tracker.DurationsByApp.Keys
+                .Concat(selected)
+                .Where(static name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            _settingsTrackedAppsInput.Items.Clear();
+            foreach (var appName in items)
+            {
+                var isChecked = selected.Contains(appName);
+                _settingsTrackedAppsInput.Items.Add(appName, isChecked);
+            }
+        }
+        finally
+        {
+            _isUpdatingTrackedAppsSelection = false;
+        }
+    }
+
+    private void UpdateTrackedAppsSelectorState()
+    {
+        var selectedMode = string.Equals((_settingsTrackingModeInput.SelectedItem as TrackingModeOption)?.Code, "selected", StringComparison.OrdinalIgnoreCase);
+        _settingsTrackedAppsInput.Enabled = selectedMode;
+        _settingsTrackedAppsLabel.Enabled = selectedMode;
+    }
+
+    private bool ShouldTrackApp(string appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName))
+        {
+            return false;
+        }
+
+        if (IsTrackAllMode)
+        {
+            return true;
+        }
+
+        return _appSettings.SelectedTrackedApps.Any(name => string.Equals(name, appName, StringComparison.OrdinalIgnoreCase));
     }
 
     private string? GetParentIdForCreate()

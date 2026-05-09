@@ -11,4 +11,8 @@ public sealed class AppSettings
     public string Language { get; set; } = "ru";
 
     public string Theme { get; set; } = "dark";
+
+    public string TrackingMode { get; set; } = "all";
+
+    public List<string> SelectedTrackedApps { get; set; } = new();
 }
