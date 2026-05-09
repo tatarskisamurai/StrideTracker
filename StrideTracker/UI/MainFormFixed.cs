@@ -39,6 +39,8 @@ public sealed class MainForm : Form
     private readonly Label _weekLabel = new();
     private readonly Label _totalLabel = new();
     private readonly FlowLayoutPanel _sessions = new();
+    private readonly BufferedPanel _dailyChart = new();
+    private readonly Label _dailyChartEmptyLabel = new();
     private readonly Button _start = new();
     private readonly Button _stop = new();
     private readonly Button _launch = new();
@@ -80,6 +82,7 @@ public sealed class MainForm : Form
     private bool _appsListInitialized;
     private bool _isRefreshingApps;
     private string _lastAppsFilter = string.Empty;
+    private (string Label, TimeSpan Duration)[] _dailyChartRows = Array.Empty<(string Label, TimeSpan Duration)>();
     private const string ExplorerThemeName = "Explorer";
     private const string DarkExplorerThemeName = "DarkMode_Explorer";
 
@@ -301,6 +304,21 @@ public sealed class MainForm : Form
         _sessions.Height = 260;
         _sessions.FlowDirection = FlowDirection.TopDown;
         _sessions.WrapContents = false;
+        _dailyChartEmptyLabel.AutoSize = true;
+        _dailyChartEmptyLabel.Margin = new Padding(3, 4, 3, 4);
+        _dailyChart.Height = 210;
+        _dailyChart.Margin = new Padding(0, 0, 0, 8);
+        _dailyChart.Paint += (_, e) => PaintDailyChart(e.Graphics, _dailyChart.ClientRectangle);
+        _sessions.SizeChanged += (_, _) =>
+        {
+            if (_dailyChartRows.Length == 0 || !_sessions.Controls.Contains(_dailyChart))
+            {
+                return;
+            }
+
+            _dailyChart.Width = Math.Max(680, _sessions.ClientSize.Width - 16);
+            _dailyChart.Invalidate();
+        };
         content.Controls.Add(hero);
         content.Controls.Add(_sessions);
 
@@ -887,10 +905,7 @@ public sealed class MainForm : Form
             _week.Text = "0h 00m";
             _total.Text = "0h 00m";
             _heroIcon.Image = GetHeroIconImage("default", null);
-            _sessions.SuspendLayout();
-            _sessions.Controls.Clear();
-            _sessions.Controls.Add(new Label { Text = T("Пока нет сессий", "No sessions yet"), AutoSize = true, ForeColor = Color.FromArgb(85, 113, 136) });
-            _sessions.ResumeLayout();
+            RenderDailyChart(Array.Empty<(string Label, TimeSpan Duration)>());
             return;
         }
 
@@ -905,20 +920,7 @@ public sealed class MainForm : Form
         _week.Text = weekValue;
         _total.Text = totalValue;
         _heroIcon.Image = GetHeroIconImage(d.AppName, d.ExecutablePath);
-
-        _sessions.SuspendLayout();
-        _sessions.Controls.Clear();
-        foreach (var entry in BuildSessionRows(d.RecentDailyDurations))
-        {
-            _sessions.Controls.Add(new Label
-            {
-                Text = $"{entry.Label}  {FormatDuration(entry.Duration)}",
-                AutoSize = true,
-                ForeColor = Color.FromArgb(155, 178, 199),
-                Margin = new Padding(3, 4, 3, 4)
-            });
-        }
-        _sessions.ResumeLayout();
+        RenderDailyChart(BuildSessionRows(d.RecentDailyDurations));
     }
 
     private void ShowTasksPage()
@@ -1298,6 +1300,8 @@ public sealed class MainForm : Form
         _tasksPageTitle.ForeColor = text;
         _settingsPageTitle.ForeColor = text;
         ApplyTrackingButtonsState();
+        _dailyChart.BackColor = IsLightTheme ? Color.FromArgb(239, 248, 255) : Color.FromArgb(16, 29, 40);
+        _dailyChart.Invalidate();
         ApplyScrollbarsThemeRecursive(this);
     }
 
@@ -1529,14 +1533,151 @@ public sealed class MainForm : Form
             .Take(5)
             .Select(entry =>
             {
-                var label = entry.Date == today
-                    ? T("Сегодня", "Today")
-                    : entry.Date == today.AddDays(-1)
-                        ? T("Вчера", "Yesterday")
-                        : entry.Date.ToString("MMM d");
+                var daysAgo = today.DayNumber - entry.Date.DayNumber;
+                var label = daysAgo switch
+                {
+                    0 => T("Сегодня", "Today"),
+                    1 => T("Вчера", "Yesterday"),
+                    _ => entry.Date.ToString(IsRussian ? "dd.MM" : "MMM d")
+                };
                 return (Label: label, Duration: entry.Duration);
             })
+            .Reverse()
             .ToArray();
+    }
+
+    private void RenderDailyChart((string Label, TimeSpan Duration)[] rows)
+    {
+        _sessions.SuspendLayout();
+        var hasRows = rows.Length > 0;
+
+        if (hasRows)
+        {
+            _dailyChartRows = rows;
+            if (_sessions.Controls.Contains(_dailyChartEmptyLabel))
+            {
+                _sessions.Controls.Remove(_dailyChartEmptyLabel);
+            }
+
+            if (!_sessions.Controls.Contains(_dailyChart))
+            {
+                _sessions.Controls.Add(_dailyChart);
+            }
+
+            _dailyChart.Width = Math.Max(680, _sessions.ClientSize.Width - 16);
+            _dailyChart.Invalidate();
+        }
+        else
+        {
+            _dailyChartRows = Array.Empty<(string Label, TimeSpan Duration)>();
+            if (_sessions.Controls.Contains(_dailyChart))
+            {
+                _sessions.Controls.Remove(_dailyChart);
+            }
+
+            _dailyChartEmptyLabel.Text = T("Пока нет данных по дням", "No daily usage data yet");
+            _dailyChartEmptyLabel.ForeColor = IsLightTheme ? Color.FromArgb(110, 136, 155) : Color.FromArgb(85, 113, 136);
+            if (!_sessions.Controls.Contains(_dailyChartEmptyLabel))
+            {
+                _sessions.Controls.Add(_dailyChartEmptyLabel);
+            }
+        }
+
+        _sessions.ResumeLayout();
+    }
+
+    private void PaintDailyChart(Graphics graphics, Rectangle bounds)
+    {
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.Clear(_dailyChart.BackColor);
+
+        if (_dailyChartRows.Length == 0 || bounds.Width <= 80 || bounds.Height <= 80)
+        {
+            return;
+        }
+
+        var chartArea = new Rectangle(22, 18, bounds.Width - 44, bounds.Height - 54);
+        if (chartArea.Width <= 0 || chartArea.Height <= 0)
+        {
+            return;
+        }
+
+        var axisColor = IsLightTheme ? Color.FromArgb(169, 201, 225) : Color.FromArgb(55, 78, 97);
+        var barColor = IsLightTheme ? Color.FromArgb(42, 127, 184) : Color.FromArgb(77, 184, 240);
+        var labelColor = IsLightTheme ? Color.FromArgb(46, 80, 105) : Color.FromArgb(190, 210, 226);
+        var valueColor = IsLightTheme ? Color.FromArgb(22, 56, 81) : Color.FromArgb(230, 237, 243);
+
+        using var axisPen = new Pen(axisColor, 1.2f);
+        graphics.DrawLine(axisPen, chartArea.Left, chartArea.Bottom, chartArea.Right, chartArea.Bottom);
+
+        var maxMinutes = Math.Max(1.0, _dailyChartRows.Max(x => x.Duration.TotalMinutes));
+        var slotWidth = (float)chartArea.Width / _dailyChartRows.Length;
+        var barWidth = Math.Max(20f, slotWidth * 0.45f);
+
+        using var barBrush = new SolidBrush(barColor);
+        using var valueBrush = new SolidBrush(valueColor);
+        using var labelBrush = new SolidBrush(labelColor);
+        using var valueFont = new Font("Segoe UI", 9F, FontStyle.Bold);
+        using var labelFont = new Font("Segoe UI", 8.5F, FontStyle.Regular);
+        using var centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+
+        for (var i = 0; i < _dailyChartRows.Length; i++)
+        {
+            var entry = _dailyChartRows[i];
+            var ratio = (float)(entry.Duration.TotalMinutes / maxMinutes);
+            var barHeight = Math.Max(3f, ratio * (chartArea.Height - 36));
+            var x = chartArea.Left + (i * slotWidth) + ((slotWidth - barWidth) / 2f);
+            var y = chartArea.Bottom - barHeight;
+            var barRect = new RectangleF(x, y, barWidth, barHeight);
+            using (var barPath = BuildRoundedRectanglePath(barRect, 6f))
+            {
+                graphics.FillPath(barBrush, barPath);
+            }
+
+            var valueText = FormatDurationChart(entry.Duration);
+            graphics.DrawString(valueText, valueFont, valueBrush, new PointF(x + (barWidth / 2f), y - 10), centered);
+
+            var labelRect = new RectangleF(chartArea.Left + (i * slotWidth), chartArea.Bottom + 8, slotWidth, 20);
+            graphics.DrawString(entry.Label, labelFont, labelBrush, labelRect, centered);
+        }
+    }
+
+    private string FormatDurationChart(TimeSpan duration)
+    {
+        var h = (int)duration.TotalHours;
+        var m = duration.Minutes;
+        var s = Math.Max(1, duration.Seconds);
+
+        if (IsRussian)
+        {
+            if (h > 0) return $"{h}ч {m}м";
+            if (m > 0) return $"{m}м";
+            return $"{s}с";
+        }
+
+        if (h > 0) return $"{h}h {m}m";
+        if (m > 0) return $"{m}m";
+        return $"{s}s";
+    }
+
+    private static GraphicsPath BuildRoundedRectanglePath(RectangleF rect, float radius)
+    {
+        var diameter = radius * 2f;
+        var path = new GraphicsPath();
+
+        if (diameter <= 0f)
+        {
+            path.AddRectangle(rect);
+            path.CloseFigure();
+            return path;
+        }
+
+        path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
+        path.AddArc(rect.Right - diameter, rect.Y, diameter, diameter, 270, 90);
+        path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     private void ApplyTaskButtonStyle(Button button)
@@ -1781,6 +1922,16 @@ public sealed class MainForm : Form
         foreach (Control child in control.Controls)
         {
             EnableDoubleBufferRecursive(child);
+        }
+    }
+
+    private sealed class BufferedPanel : Panel
+    {
+        public BufferedPanel()
+        {
+            DoubleBuffered = true;
+            ResizeRedraw = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
         }
     }
 }
