@@ -685,7 +685,7 @@ public sealed class MainForm : Form
             {
                 EnsureIcon(name, null, _tracker.GetKnownExecutablePath(name));
                 var item = new ListViewItem(name) { Tag = name, ImageKey = GetIconKey(name) };
-                item.SubItems.Add($"{T("Сегодня", "Today")} {FormatDuration(span)}");
+                item.SubItems.Add(FormatDuration(span));
                 _appsList.Items.Add(item);
             }
         }
@@ -702,13 +702,13 @@ public sealed class MainForm : Form
                 if (!existingByName.TryGetValue(name, out var item))
                 {
                     item = new ListViewItem(name) { Tag = name, ImageKey = GetIconKey(name) };
-                    item.SubItems.Add($"{T("Сегодня", "Today")} {FormatDuration(span)}");
+                    item.SubItems.Add(FormatDuration(span));
                     _appsList.Items.Add(item);
                     continue;
                 }
 
                 item.ImageKey = GetIconKey(name);
-                var todayText = $"{T("Сегодня", "Today")} {FormatDuration(span)}";
+                var todayText = FormatDuration(span);
                 if (item.SubItems.Count < 2)
                 {
                     item.SubItems.Add(todayText);
@@ -1620,13 +1620,42 @@ public sealed class MainForm : Form
         return true;
     }
 
-    private static string FormatDuration(TimeSpan duration)
+    private string FormatDuration(TimeSpan duration)
     {
         var h = (int)duration.TotalHours;
         var m = duration.Minutes;
+        var s = Math.Max(1, duration.Seconds);
+
+        if (IsRussian)
+        {
+            if (h > 0)
+            {
+                return m > 0
+                    ? $"{h} {RuPlural(h, "час", "часа", "часов")} {m} {RuPlural(m, "минута", "минуты", "минут")}"
+                    : $"{h} {RuPlural(h, "час", "часа", "часов")}";
+            }
+
+            if (m > 0)
+            {
+                return $"{m} {RuPlural(m, "минута", "минуты", "минут")}";
+            }
+
+            return $"{s} {RuPlural(s, "секунда", "секунды", "секунд")}";
+        }
+
         if (h > 0) return $"{h}h {m}m";
         if (m > 0) return $"{m}m";
-        return $"{Math.Max(1, duration.Seconds)}s";
+        return $"{s}s";
+    }
+
+    private static string RuPlural(int value, string one, string few, string many)
+    {
+        var abs = Math.Abs(value) % 100;
+        var last = abs % 10;
+        if (abs is >= 11 and <= 14) return many;
+        if (last == 1) return one;
+        if (last is >= 2 and <= 4) return few;
+        return many;
     }
 
     private static string BuildSessionPath()
